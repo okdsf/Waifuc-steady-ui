@@ -1,0 +1,54 @@
+{
+  "id": "039f3f81-f73b-436b-b0cd-00a64ad36f74",
+  "name": "Three test",
+  "description": "",
+  "steps": [
+    {
+      "id": "12e1bf7f-1951-4c56-a2c2-3a4628ec424a",
+      "action_name": "BackgroundRemovalAction",
+      "params": {}
+    },
+    {
+      "id": "41eb93fb-4f96-49a0-bed2-dbec1ef94e4b",
+      "action_name": "ModeConvertAction",
+      "params": {
+        "mode": "RGB",
+        "force_background": "white"
+      }
+    },
+    {
+      "id": "1a26f4b5-2020-4962-8e8e-5dfe0b9889f5",
+      "action_name": "ThreeStageSplitAction",
+      "params": {
+        "head_scale": 1.5,
+        "split_eyes": false,
+        "eye_scale": 2.4,
+        "split_person": true,
+        "keep_origin_tags": false,
+        "return_person": true,
+        "return_halfbody": true,
+        "return_head": true,
+        "return_eyes": false
+      }
+    },
+    {
+      "id": "d22047cf-2780-4f62-8b76-0e640f1239ba",
+      "action_name": "PersonSplitAction",
+      "params": {
+        "keep_original": false,
+        "level": "m",
+        "version": "v1.1",
+        "conf_threshold": 0.3,
+        "iou_threshold": 0.5,
+        "keep_origin_tags": false
+      }
+    },
+    {
+      "id": "a19fd6b0-c3ce-470a-adc1-203735797fd5",
+      "action_name": "TagOverlapDropAction",
+      "params": {}
+    }
+  ],
+  "created_at": "2025-05-07T16:13:42.077218",
+  "updated_at": "2025-05-11T21:44:23.462563"
+}
