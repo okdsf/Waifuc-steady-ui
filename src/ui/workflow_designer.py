@@ -382,10 +382,8 @@ class WorkflowStepsWidget(QTreeWidget):
     def dropEvent(self, event):
         """处理放置事件"""
         if event.mimeData().hasText():
-            # 获取放置位置
-            index = self.indexAt(event.pos())
-            
-            # 解析MIME数据
+            # 当前处理从 ActionsListWidget 拖入新操作的逻辑
+            # 这部分通过 "add" 信号更新后端，看起来是正常的
             try:
                 data = json.loads(event.mimeData().text())
                 if data.get("type") == "action":
@@ -395,26 +393,62 @@ class WorkflowStepsWidget(QTreeWidget):
                     dialog = StepConfigDialog(action_name, parent=self)
                     if dialog.exec_():
                         params = dialog.get_params()
+                        step = WorkflowStep(action_name, params) # 创建步骤
                         
-                        # 创建步骤
-                        step = WorkflowStep(action_name, params)
+                        # 确定插入位置 (基于视觉放置)
+                        target_item = self.itemAt(event.pos())
+                        index_at_drop = self.indexFromItem(target_item) if target_item else self.indexFromItem(self.invisibleRootItem())
                         
-                        # 发送添加步骤信号
+                        # 发送添加步骤信号 (由 WorkflowDesignerWidget 处理)
                         self.step_edited.emit("add", {
                             "step": step.to_dict(),
-                            "index": index.row() if index.isValid() else -1
+                            "index": index_at_drop.row() if index_at_drop.isValid() and target_item else -1 # -1 表示追加
                         })
                         
-                        # 添加到控件
-                        item = self.add_step_item(step)
-                        
-                        # 展开新添加的项
+                        # 注意：下面的 add_step_item 会将item添加到树的末尾。
+                        # 后端会根据 index 插入，WorkflowDesignerWidget 可能需要刷新树或确保UI同步。
+                        # 为了更精确的UI插入，可以修改 add_step_item 或在这里直接插入QTreeWidgetItem。
+                        # 不过，当前问题核心是reorder。
+                        item = self.add_step_item(step) # 在UI上添加
                         item.setExpanded(True)
                 
                 event.acceptProposedAction()
-            except:
-                pass
+            except Exception: # 更具体的异常捕获可能更好
+                event.ignore() # 如果处理失败，明确忽略事件
+                # pass # 避免空 except
+
+        elif event.source() == self and (event.possibleActions() & Qt.MoveAction):
+            # 这是内部拖拽移动操作 (reordering existing steps)
+            
+            # 记录移动前的ID顺序，用于判断是否有实际顺序变化
+            original_ids = []
+            for i in range(self.topLevelItemCount()):
+                item = self.topLevelItem(i)
+                data = item.data(0, Qt.UserRole)
+                if data and data.get("type") == "step":
+                    original_ids.append(data.get("id"))
+
+            # 让QTreeWidget的默认实现处理视觉上的项目移动
+            super().dropEvent(event)
+
+            if event.isAccepted():
+                # 拖放被接受，视觉顺序已更新
+                # 现在从UI获取新的步骤ID顺序
+                new_ordered_ids = []
+                for i in range(self.topLevelItemCount()):
+                    item = self.topLevelItem(i)
+                    data = item.data(0, Qt.UserRole) # QTreeWidgetItem的用户数据
+                    if data and data.get("type") == "step":
+                        new_ordered_ids.append(data.get("id"))
+                
+                # 只有当项目数量一致且顺序确实发生改变时，才发送信号
+                if len(new_ordered_ids) == len(original_ids) and new_ordered_ids != original_ids:
+                    self.step_edited.emit("reorder", {"ordered_ids": new_ordered_ids})
+                # 如果顺序没变或者项目数不一致（不太可能在简单的内部移动中发生），则不执行任何操作
+            # else: event was not accepted by superclass, do nothing.
+
         else:
+            # 其他类型的拖放事件，也交给父类处理
             super().dropEvent(event)
     
     def on_item_double_clicked(self, item, column):
@@ -900,7 +934,43 @@ class WorkflowDesignerWidget(QWidget):
                 
                 # 更新UI
                 self.update_workflow_info()
+
+        elif action == "reorder":
+            ordered_ids = data.get("ordered_ids")
+            if ordered_ids and self.current_workflow:
+                # 根据新的ID顺序重新排列 self.current_workflow.steps
+                
+                step_map = {step.id: step for step in self.current_workflow.steps}
+                new_steps_list = []
+                
+                # 验证ID列表是否与当前工作流步骤匹配
+                if len(ordered_ids) != len(self.current_workflow.steps):
+                    QMessageBox.warning(self, "错误", "步骤重新排序时发生错误：项目数量不匹配。")
+                    # 为保持UI和后端一致，可以考虑重新加载工作流以撤销无效的UI更改
+                    self.steps_tree.load_workflow(self.current_workflow)
+                    return
+
+                valid_reorder = True
+                for step_id in ordered_ids:
+                    step = step_map.get(step_id)
+                    if step:
+                        new_steps_list.append(step)
+                    else:
+                        # 理论上不应发生，因为ID是从UI项中提取的
+                        QMessageBox.critical(self, "严重错误", f"步骤重新排序时未找到ID为 {step_id} 的步骤。")
+                        self.steps_tree.load_workflow(self.current_workflow) # 恢复UI
+                        valid_reorder = False
+                        break
+                
+                if valid_reorder:
+                    self.current_workflow.steps = new_steps_list
+                    workflow_manager.save_workflow(self.current_workflow)
+                    self.update_workflow_info() # 更新如步骤数量等信息
+                    # UI树已经由QTreeWidget的内部移动更新，这里不需要重新加载整个树
+                # else: 错误已处理或UI已恢复
+
     
     def get_current_workflow(self) -> Optional[Workflow]:
         """获取当前工作流"""
         return self.current_workflow
+    
