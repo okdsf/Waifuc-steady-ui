@@ -82,10 +82,7 @@ class MainWindow(QMainWindow):
         self.action_open_workflow.triggered.connect(self.on_open_workflow)
         self.toolbar.addAction(self.action_open_workflow)
         
-        # 保存工作流
-        self.action_save_workflow = QAction("保存工作流", self)
-        self.action_save_workflow.triggered.connect(self.on_save_workflow)
-        self.toolbar.addAction(self.action_save_workflow)
+
         
         self.toolbar.addSeparator()
         
@@ -116,7 +113,6 @@ class MainWindow(QMainWindow):
         
         file_menu.addAction(self.action_new_workflow)
         file_menu.addAction(self.action_open_workflow)
-        file_menu.addAction(self.action_save_workflow)
         file_menu.addSeparator()
         
         # 导入/导出工作流
@@ -243,10 +239,6 @@ class MainWindow(QMainWindow):
     def on_open_workflow(self):
         """打开工作流"""
         self.workflow_designer.open_workflow_dialog()
-    
-    def on_save_workflow(self):
-        """保存工作流"""
-        self.workflow_designer.save_workflow()
     
     def on_export_workflow(self):
         """导出工作流"""
