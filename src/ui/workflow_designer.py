@@ -311,6 +311,8 @@ class WorkflowStepsWidget(QTreeWidget):
         for step in workflow.steps:
             self.add_step_item(step)
     
+
+
     def add_step_item(self, step: WorkflowStep) -> QTreeWidgetItem:
         """添加步骤项"""
         item = QTreeWidgetItem([step.action_name, str(step.params)])
@@ -321,12 +323,16 @@ class WorkflowStepsWidget(QTreeWidget):
             "params": step.params
         })
         
-        # 添加参数子项
+        step_flags = Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemIsDragEnabled
+        item.setFlags(step_flags)
+        
+        item.takeChildren() 
         for param_name, param_value in step.params.items():
             param_item = QTreeWidgetItem([param_name, str(param_value)])
+            param_item.setFlags(Qt.ItemIsEnabled) 
             item.addChild(param_item)
         
-        self.addTopLevelItem(item)
+        self.addTopLevelItem(item) 
         return item
     
     def dragEnterEvent(self, event):
