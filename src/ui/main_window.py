@@ -5,11 +5,11 @@ from PyQt5.QtWidgets import (
     QMainWindow, QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QTabWidget, QPushButton, QLabel, QStatusBar, QAction, QToolBar,
     QFileDialog, QMessageBox, QDockWidget, QListWidget, QTreeWidget, 
-    QTreeWidgetItem, QSplitter, QFrame, QMenu
+    QTreeWidgetItem, QSplitter, QFrame, QMenu,QInputDialog
 )
 from PyQt5.QtCore import Qt, QSize, pyqtSignal, QSettings
 from PyQt5.QtGui import QIcon, QPixmap, QFont
-
+from src.data import workflow_manager
 from .workflow_designer import WorkflowDesignerWidget
 from .source_selector import SourceSelectorWidget
 from .history_view import HistoryViewWidget
@@ -89,12 +89,16 @@ class MainWindow(QMainWindow):
         
         self.toolbar.addSeparator()
         
+        self.action_delete_workflow = QAction("删除工作流", self) # 新建 QAction
+        self.action_delete_workflow.triggered.connect(self.on_delete_workflow) # 连接到新槽函数
+        self.toolbar.addAction(self.action_delete_workflow) # 添加到工具栏
+
         # 运行工作流
         self.action_run_workflow = QAction("运行工作流", self)
         self.action_run_workflow.triggered.connect(self.on_run_workflow)
         self.toolbar.addAction(self.action_run_workflow)
         
-        # 停止工作流
+        
         self.action_stop_workflow = QAction("停止工作流", self)
         self.action_stop_workflow.triggered.connect(self.on_stop_workflow)
         self.action_stop_workflow.setEnabled(False)
@@ -361,6 +365,51 @@ class MainWindow(QMainWindow):
         from .component_explorer import ComponentListDialog
         dialog = ComponentListDialog(self)
         dialog.exec_()
+
+
+
+    def on_delete_workflow(self):
+            """删除选定的工作流"""
+            all_workflows = workflow_manager.get_all_workflows()
+            if not all_workflows:
+                QMessageBox.information(self, "提示", "没有已保存的工作流可供删除。")
+                return
+
+            items = [f"{wf.name} ({wf.id})" for wf in all_workflows]
+            item, ok = QInputDialog.getItem(self, "删除工作流", "请选择要删除的工作流:", items, 0, False)
+
+            if ok and item:
+                try:
+                    workflow_name_to_delete = item.split(" (")[0]
+                    workflow_id_to_delete = item.split("(")[-1].strip(")")
+                except IndexError:
+                    QMessageBox.warning(self, "选择错误", "选择的工作流条目格式不正确。")
+                    return
+
+                reply = QMessageBox.question(
+                    self, "确认删除",
+                    f"您确定要删除工作流 '{workflow_name_to_delete}' 吗？此操作无法撤销。",
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+                )
+
+                if reply == QMessageBox.Yes:
+                    if workflow_manager.delete_workflow(workflow_id_to_delete):
+                        QMessageBox.information(self, "成功", f"工作流 '{workflow_name_to_delete}' 已被删除。")
+
+                        # 检查当前工作流设计器中是否加载了这个被删除的工作流
+                        current_designer_workflow = self.workflow_designer.get_current_workflow()
+                        if current_designer_workflow and current_designer_workflow.id == workflow_id_to_delete:
+                            # 清理工作流设计器状态
+                            self.workflow_designer.current_workflow = None
+                            self.workflow_designer.steps_tree.clear()
+                            self.workflow_designer.update_workflow_info()
+                            self.status_bar.showMessage(f"工作流 '{workflow_name_to_delete}' 已删除，设计器已清空。")
+                        else:
+                            self.status_bar.showMessage(f"工作流 '{workflow_name_to_delete}' 已删除。")
+                    else:
+                        QMessageBox.warning(self, "删除失败", f"删除工作流 '{workflow_name_to_delete}' 失败。")
+
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
