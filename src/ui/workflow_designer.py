@@ -47,55 +47,85 @@ class StepConfigDialog(QDialog):
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
 
+
+
+
     def create_param_widgets(self):
         """创建参数输入控件"""
-        default_params = action_registry.get_action_params(self.action_name)
-        params = {**default_params, **self.params}
+        action_default_params = action_registry.get_action_params(self.action_name)
 
-        for param_name, default_value in default_params.items():
+
+        params_to_display = {**action_default_params, **self.params}
+
+   
+        for param_name, default_config_value in action_default_params.items():
+
+            current_value_to_display = params_to_display.get(param_name)
+
             label = QLabel(f"{param_name}:")
-            if default_value is None:
-                # 必需参数
+
+ 
+
+            if default_config_value is None:
                 widget = QLineEdit()
-                widget.setPlaceholderText(f"请输入 {param_name}（必填）")
-            else:
-                # 有默认值
-                if isinstance(default_value, bool):
-                    widget = QCheckBox()
-                    widget.setChecked(default_value)
-                elif isinstance(default_value, int):
-                    widget = QSpinBox()
-                    widget.setRange(-1000000, 1000000)
-                    widget.setValue(default_value)
-                elif isinstance(default_value, float):
-                    widget = QDoubleSpinBox()
-                    widget.setRange(-1000000, 1000000)
-                    widget.setDecimals(4)
-                    widget.setValue(default_value)
-                elif isinstance(default_value, dict):
-                    widget = QLineEdit()
-                    widget.setText(str(default_value))
-                    widget.setReadOnly(True)
-                    edit_button = QPushButton("编辑...")
-                    edit_button.clicked.connect(lambda checked, name=param_name: self.edit_dict_param(name))
-                    self.form_layout.addRow(label, widget)
-                    self.form_layout.addRow("", edit_button)
-                    self.param_widgets[param_name] = (widget, edit_button)
-                    continue
-                elif isinstance(default_value, list) or isinstance(default_value, tuple):
-                    widget = QLineEdit()
-                    widget.setText(str(default_value))
-                    widget.setReadOnly(True)
-                    edit_button = QPushButton("编辑...")
-                    edit_button.clicked.connect(lambda checked, name=param_name: self.edit_list_param(name))
-                    self.form_layout.addRow(label, widget)
-                    self.form_layout.addRow("", edit_button)
-                    self.param_widgets[param_name] = (widget, edit_button)
-                    continue
-                else:
-                    widget = QLineEdit(str(default_value))
+                if current_value_to_display is not None: 
+                    widget.setText(str(current_value_to_display))
+                else: # 否则，如果是必填项，显示占位符
+                    widget.setPlaceholderText(f"请输入 {param_name}（必填）")
+            
+            elif isinstance(default_config_value, bool):
+                widget = QCheckBox()
+                # 使用 current_value_to_display (转换为布尔型以确保类型正确)
+                widget.setChecked(bool(current_value_to_display))
+            
+            elif isinstance(default_config_value, int):
+                widget = QSpinBox()
+                widget.setRange(-1000000, 1000000) # 范围可以根据需要调整
+                # 使用 current_value_to_display (转换为整型)
+                widget.setValue(int(current_value_to_display))
+            
+            elif isinstance(default_config_value, float):
+                widget = QDoubleSpinBox()
+                widget.setRange(-1000000, 1000000) # 范围可以根据需要调整
+                widget.setDecimals(4) # 小数位数可以根据需要调整
+                # 使用 current_value_to_display (转换为浮点型)
+                widget.setValue(float(current_value_to_display))
+            
+            elif isinstance(default_config_value, dict):
+                widget = QLineEdit()
+                # 显示 current_value_to_display 的字符串形式
+                widget.setText(str(current_value_to_display))
+                widget.setReadOnly(True)
+                edit_button = QPushButton("编辑...")
+                # edit_dict_param 方法会从 widget 读取文本，所以 setText(str(current_value_to_display)) 很重要
+                edit_button.clicked.connect(lambda checked, name=param_name: self.edit_dict_param(name))
+                
+                self.form_layout.addRow(label, widget)
+                self.form_layout.addRow("", edit_button)
+                self.param_widgets[param_name] = (widget, edit_button)
+                continue # 跳过此循环末尾的默认 addRow
+            
+            elif isinstance(default_config_value, (list, tuple)):
+                widget = QLineEdit()
+                # 显示 current_value_to_display 的字符串形式
+                widget.setText(str(current_value_to_display))
+                widget.setReadOnly(True)
+                edit_button = QPushButton("编辑...")
+                # edit_list_param 方法会从 widget 读取文本
+                edit_button.clicked.connect(lambda checked, name=param_name: self.edit_list_param(name))
+
+                self.form_layout.addRow(label, widget)
+                self.form_layout.addRow("", edit_button)
+                self.param_widgets[param_name] = (widget, edit_button)
+                continue # 跳过此循环末尾的默认 addRow
+            
+            else: # 其他类型（如字符串）默认使用 QLineEdit
+                widget = QLineEdit(str(current_value_to_display))
+
             self.form_layout.addRow(label, widget)
             self.param_widgets[param_name] = widget
+
+
 
     def edit_dict_param(self, param_name):
         """编辑字典参数"""
