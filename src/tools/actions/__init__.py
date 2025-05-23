@@ -11,7 +11,8 @@ from .transform_actions import (
     AlignMaxSizeAction,
     AlignMinSizeAction,
     AlignMaxAreaAction,
-    PaddingAlignAction
+    PaddingAlignAction,
+    PersonRemovalAction
 )
 from .augment_actions import (
     RandomChoiceAction,
@@ -76,6 +77,7 @@ registry.register("分割", PersonSplitAction)
 registry.register("分割", ThreeStageSplitAction)
 registry.register("分割", FrameSplitAction)
 registry.register("过滤", FilterSimilarAction)
+registry.register("过滤", PersonRemovalAction)
 registry.register("过滤", MinSizeFilterAction)
 registry.register("过滤", MinAreaFilterAction)
 registry.register("过滤", NoMonochromeAction)

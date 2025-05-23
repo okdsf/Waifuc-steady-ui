@@ -2,6 +2,7 @@ set http_proxy=http://127.0.0.1:7897
 set https_proxy=http://127.0.0.1:7897
 python main.py
 C:\Users\Administrator\Desktop\AA\Real-ESRGAN\weights\RealESRGAN_x4plus.pth
+H:\sd-webui-aki-v4.8\models\RealESRGAN\RealESRGAN_x4plus_anime_6B.pth
 896x1792
 960x1920
 800x1600

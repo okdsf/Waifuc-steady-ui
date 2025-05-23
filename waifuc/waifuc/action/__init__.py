@@ -1,6 +1,6 @@
 from .align import AlignMaxSizeAction, AlignMinSizeAction, PaddingAlignAction, AlignMaxAreaAction
 from .augument import RandomFilenameAction, RandomChoiceAction, BaseRandomAction, MirrorAction, CharacterEnhanceAction
-from .background import BackgroundRemovalAction
+from .background import BackgroundRemovalAction,PersonRemovalAction
 from .base import BaseAction, ProcessAction, FilterAction, ActionStop, ProgressBarAction
 from .basic import ModeConvertAction
 from .ccip import CCIPAction

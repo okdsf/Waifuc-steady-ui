@@ -9,7 +9,8 @@ from waifuc.action import (
     AlignMaxSizeAction as WaifucAlignMaxSizeAction,
     AlignMinSizeAction as WaifucAlignMinSizeAction,
     AlignMaxAreaAction as WaifucAlignMaxAreaAction,
-    PaddingAlignAction as WaifucPaddingAlignAction
+    PaddingAlignAction as WaifucPaddingAlignAction,
+    PersonRemovalAction as WaifucPersonRemovalAction
 )
 
 class ModeConvertAction(WaifucActionWrapper):
@@ -70,3 +71,11 @@ class PaddingAlignAction(WaifucActionWrapper):
     """
     def __init__(self, size: Tuple[int, int], color: str = 'white'):
         super().__init__(WaifucPaddingAlignAction, size=size, color=color)
+
+
+class PersonRemovalAction(WaifucActionWrapper):
+    """
+    使用isnetis模型移除图像背景，保留前景。
+    """
+    def __init__(self):
+        super().__init__(WaifucPersonRemovalAction)

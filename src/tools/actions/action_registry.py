@@ -7,7 +7,7 @@ from .base import BaseAction
 from .waifuc_actions import WaifucActionWrapper
 from .transform_actions import (
     ModeConvertAction, BackgroundRemovalAction, AlignMaxSizeAction,
-    AlignMinSizeAction, AlignMaxAreaAction, PaddingAlignAction
+    AlignMinSizeAction, AlignMaxAreaAction, PaddingAlignAction,PersonRemovalAction
 )
 from .augment_actions import (
     RandomChoiceAction, RandomFilenameAction, MirrorAction, CharacterEnhanceAction
@@ -62,6 +62,7 @@ class ActionRegistry:
         # 注册操作
         self.register("转换", ModeConvertAction)
         self.register("转换", BackgroundRemovalAction)
+        self.register("转换",PersonRemovalAction)
         
         self.register("变换", RandomChoiceAction)
         self.register("变换", RandomFilenameAction)
