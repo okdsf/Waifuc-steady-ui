@@ -16,6 +16,7 @@ from src.tools.actions.action_registry import registry as action_registry
 from src.tools.sources.source_registry import registry as source_registry
 from src.tools.actions.waifuc_actions import WaifucActionWrapper
 from waifuc.source import LocalSource
+from waifuc.action import TerminalAction
 
 logger = logging.getLogger(__name__)
 
@@ -169,8 +170,6 @@ class WorkflowEngine:
                      record.start_time = time.time()
                 history_manager.save_record(record)
 
-            # --- 您原始的 _execute_workflow_internal 核心代码应该在这里 ---
-            # 以下是根据您之前文件和我的理解重建的，请务必核对
             os.makedirs(output_directory, exist_ok=True)
             temp_dir = tempfile.mkdtemp()
             temp_input_dir = os.path.join(temp_dir, 'input')
@@ -233,10 +232,20 @@ class WorkflowEngine:
                 try:
                     action = action_registry.create_action(step.action_name, **step.params)
                     action_instance = action.action if isinstance(action, WaifucActionWrapper) and hasattr(action, 'action') else action
+                    
+                    # vvvvvvvvvvvvvv  修改点 1: 检查并注入 output_directory vvvvvvvvvvvvvv
+                    if isinstance(action_instance, TerminalAction):
+                        # 如果是终点动作，将最终输出目录路径注入，授权它进行最终保存
+                        action_instance.output_directory = output_directory
+                        task_logger.info(f"步骤 {i+1} 是一个 TerminalAction，已注入输出目录: {output_directory}")
+                    # ^^^^^^^^^^^^^^  修改点 1 结束 ^^^^^^^^^^^^^^
+                    
                     source_for_step = LocalSource(current_dir_for_steps)
                     processed_output = source_for_step.attach(action_instance)
                     from waifuc.export import SaveExporter
+                    # 即使是 TerminalAction（它会返回空流），调用 export 也不会出错，只是不会保存任何文件
                     processed_output.export(SaveExporter(step_output_dir))
+                    
                     def clean_metadata_local(directory_to_clean):
                         try:
                             for filename in os.listdir(directory_to_clean):
@@ -245,71 +254,89 @@ class WorkflowEngine:
                         except Exception as e_clean: logger.warning(f"清理元数据失败 ({directory_to_clean}): {str(e_clean)}")
                     clean_metadata_local(step_output_dir)
                     output_files_count_step = len([f for f in os.listdir(step_output_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff'))])
-                    if not output_files_count_step: task_logger.warning(f"步骤 {step.action_name} 未生成任何图像")
-                    record.add_step_log(step.id, step.action_name, "completed", f"步骤 {i+1}/{len(workflow.steps)} 成功完成，生成 {output_files_count_step} 张图像")
+                    if not output_files_count_step and not isinstance(action_instance, TerminalAction):
+                        task_logger.warning(f"步骤 {step.action_name} 未生成任何图像到临时目录")
+                    record.add_step_log(step.id, step.action_name, "completed", f"步骤 {i+1}/{len(workflow.steps)} 成功完成")
                     if progress_callback: progress_callback("处理图像", step_progress_base + 0.6/len(workflow.steps), f"步骤 {i+1}/{len(workflow.steps)} 完成")
                     current_dir_for_steps = step_output_dir
                 except Exception as e_step:
                     error_msg_step = f"步骤 {i+1} ({step.action_name}) 执行失败: {str(e_step)}"
                     task_logger.error(error_msg_step, exc_info=True)
                     record.add_step_log(step.id, step.action_name, "failed", error_msg_step)
-                    record.fail(f"工作流因步骤 {step.action_name} 失败而中止: {error_msg_step}") # 步骤失败导致工作流失败
+                    record.fail(f"工作流因步骤 {step.action_name} 失败而中止: {error_msg_step}")
                     history_manager.save_record(record)
                     if progress_callback: progress_callback("错误", step_progress_base, f"步骤 {step.action_name} 失败，工作流中止")
-                    return # 终止工作流
+                    return
             
             if cancel_event and cancel_event.is_set(): raise CancelledError("任务在复制最终文件前被取消")
             final_output_files_count = 0
+
+            # vvvvvvvvvvvvvv  修改点 2: 检查最后一个动作，决定是否跳过默认保存 vvvvvvvvvvvvvv
+            is_last_action_terminal = False
             if workflow.steps:
-                for root, _dirs, files_in_final_step_dir in os.walk(current_dir_for_steps):
-                    if cancel_event and cancel_event.is_set(): raise CancelledError("复制操作被取消")
-                    for filename_final in files_in_final_step_dir:
-                        if filename_final.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff')):
-                            base, ext = os.path.splitext(filename_final)
-                            unique_filename_final = f"{base}_{uuid.uuid4().hex[:8]}{ext}"
-                            src_path_final = os.path.join(root, filename_final)
-                            dst_path_final = os.path.join(output_directory, unique_filename_final)
-                            try:
-                                shutil.copy2(src_path_final, dst_path_final)
-                                final_output_files_count += 1
-                            except Exception as e_copy: task_logger.error(f"复制最终文件失败: {src_path_final} -> {dst_path_final}, 错误: {str(e_copy)}")
-                task_logger.info(f"已将 {final_output_files_count} 个文件复制到最终输出目录: {output_directory}")
-                def clean_metadata_local_final(directory_to_clean):
-                    try:
-                        for filename_clean in os.listdir(directory_to_clean):
-                            if filename_clean.startswith('.') and filename_clean.endswith('_meta.json'):
-                                os.remove(os.path.join(directory_to_clean, filename_clean))
-                    except Exception as e_clean_final: logger.warning(f"清理最终目录元数据失败 ({directory_to_clean}): {str(e_clean_final)}")
-                clean_metadata_local_final(output_directory)
+                last_step = workflow.steps[-1]
+                last_action_wrapper = action_registry.create_action(last_step.action_name, **last_step.params)
+                last_action_instance = last_action_wrapper.action if isinstance(last_action_wrapper, WaifucActionWrapper) else last_action_wrapper
+                if isinstance(last_action_instance, TerminalAction):
+                    is_last_action_terminal = True
+            
+            if is_last_action_terminal:
+                task_logger.info("最后一个 Action 是 TerminalAction，它已自行处理输出，引擎将跳过默认的最终保存步骤。")
+                # 因为 action 自己处理了保存，我们需要在这里重新统计最终文件数以正确记录
+                if os.path.exists(output_directory):
+                    final_output_files_count = sum(len(files) for _, _, files in os.walk(output_directory))
+                else:
+                    final_output_files_count = 0
+            else:
+                task_logger.info("执行标准的最终保存步骤...")
+                if workflow.steps and os.path.exists(current_dir_for_steps):
+                    for root, _dirs, files_in_final_step_dir in os.walk(current_dir_for_steps):
+                        if cancel_event and cancel_event.is_set(): raise CancelledError("复制操作被取消")
+                        for filename_final in files_in_final_step_dir:
+                            if filename_final.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff')):
+                                base, ext = os.path.splitext(filename_final)
+                                unique_filename_final = f"{base}_{uuid.uuid4().hex[:8]}{ext}"
+                                src_path_final = os.path.join(root, filename_final)
+                                dst_path_final = os.path.join(output_directory, unique_filename_final)
+                                try:
+                                    shutil.copy2(src_path_final, dst_path_final)
+                                    final_output_files_count += 1
+                                except Exception as e_copy: task_logger.error(f"复制最终文件失败: {src_path_final} -> {dst_path_final}, 错误: {str(e_copy)}")
+            # ^^^^^^^^^^^^^^  修改点 2 结束 ^^^^^^^^^^^^^^
+
+            task_logger.info(f"已将 {final_output_files_count} 个文件保存到最终输出目录: {output_directory}")
+            def clean_metadata_local_final(directory_to_clean):
+                try:
+                    for filename_clean in os.listdir(directory_to_clean):
+                        if filename_clean.startswith('.') and filename_clean.endswith('_meta.json'):
+                            os.remove(os.path.join(directory_to_clean, filename_clean))
+                except Exception as e_clean_final: logger.warning(f"清理最终目录元数据失败 ({directory_to_clean}): {str(e_clean_final)}")
+            clean_metadata_local_final(output_directory)
 
             record.complete(
                 total_images=record.total_images if record.total_images is not None else 0,
                 processed_images=final_output_files_count,
                 success_images=final_output_files_count,
-                failed_images=0 # Assuming if we reach here, there were no earlier critical failures
+                failed_images=0
             )
             history_manager.save_record(record)
-            # --- MODIFICATION HERE ---
-            # Line ~431 where error occurred
-            completion_log_message = getattr(record, 'message', record.status) # Use message if available, else status
+            completion_log_message = getattr(record, 'message', record.status)
             task_logger.info(f"工作流执行完成. Record ID: {record.id}. 状态: {record.status}, 详情: {completion_log_message}")
             if progress_callback: progress_callback("完成", 1.0, f"处理完成. 总图像: {record.total_images}, 成功: {final_output_files_count}")
 
         except CancelledError as e:
             error_msg = str(e)
             task_logger.info(f"Record ID {record.id}: {error_msg} (Caught in _execute_workflow_internal)")
-            # 确保 fail 方法正确设置 status，例如为 "cancelled" 或 "failed"
-            record.fail(error_msg) # fail 方法应该更新 record.status
+            record.fail(error_msg)
             history_manager.save_record(record)
             if progress_callback:
                 progress_val = 0.0
                 progress_callback("取消", progress_val, error_msg)
         
-        except Exception as e: # Line ~450
+        except Exception as e:
             error_msg = f"工作流执行中发生意外错误: {str(e)}"
             task_logger.error(f"Record ID {record.id}: {error_msg}", exc_info=True)
-            # --- MODIFICATION HERE ---
-            if record.status not in TERMINAL_STATUSES: # Line ~452 where error occurred
+            if record.status not in TERMINAL_STATUSES:
                 record.fail(error_msg)
                 history_manager.save_record(record)
             if progress_callback:

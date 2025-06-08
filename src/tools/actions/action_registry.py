@@ -36,7 +36,7 @@ from .custom_actions import (
 from .enhance_actions import (
     ESRGANActionWrapper, SmartCropActionWrapper
 )
-
+from .pipeline_actions import DirectoryPipelineActionWrapper
 
 class ActionRegistry:
     """

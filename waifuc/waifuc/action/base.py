@@ -75,3 +75,16 @@ class ProgressBarAction(BaseAction, NamedObject):
 
     def reset(self):
         raise NotImplementedError  # pragma: no cover
+
+
+class TerminalAction(BaseAction):
+    """
+    一个标记基类，用于表示该 Action 是流水线的“终点”。
+
+    继承自此类的 Action 表明它会自己处理最终的输出保存逻辑，
+    并且不会再向 Engine 返回任何 ImageItem 流。
+    WorkflowEngine 在遇到此类 Action 作为最后一个步骤时，
+    应跳过其默认的最终保存操作。
+    """
+    # 这个类是空的，只用作类型标记
+    pass

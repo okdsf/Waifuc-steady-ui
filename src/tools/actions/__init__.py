@@ -61,7 +61,7 @@ from .custom_actions import (
     ProcessRatioGroupAction,
     HeadCoverAction
 )
-
+from .pipeline_actions import DirectoryPipelineActionWrapper
 # 注册动作
 registry.register("转换", ModeConvertAction)
 registry.register("转换", BackgroundRemovalAction)
@@ -107,3 +107,4 @@ registry.register("自定义", ProcessRatioGroupAction)
 registry.register("自定义", HeadCoverAction)
 registry.register("增强", ESRGANActionWrapper)
 registry.register("增强", SmartCropActionWrapper)
+registry.register("增强",DirectoryPipelineActionWrapper)
