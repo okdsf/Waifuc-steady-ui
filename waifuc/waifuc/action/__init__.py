@@ -15,7 +15,7 @@ from .lpips import FilterSimilarAction
 from .safety import SafetyAction
 from .split import PersonSplitAction, ThreeStageSplitAction
 from .tagging import TaggingAction, TagFilterAction, TagOverlapDropAction, TagDropAction, BlacklistedTagDropAction, \
-    TagRemoveUnderlineAction
+    TagRemoveUnderlineAction,TagAppendAction
 from .crop import SmartCropAction
 from .esrgan import ESRGANAction
 from .pipline import DirectoryPipelineAction

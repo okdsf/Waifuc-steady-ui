@@ -46,7 +46,8 @@ from .tagging_actions import (
     TagOverlapDropAction,
     TagDropAction,
     BlacklistedTagDropAction,
-    TagRemoveUnderlineAction
+    TagRemoveUnderlineAction,
+    TagAppendAction
 )
 from .misc_actions import (
     SafetyAction,
@@ -96,6 +97,7 @@ registry.register("标签", TagOverlapDropAction)
 registry.register("标签", TagDropAction)
 registry.register("标签", BlacklistedTagDropAction)
 registry.register("标签", TagRemoveUnderlineAction)
+registry.register("标签", TagAppendAction)
 registry.register("安全", SafetyAction)
 registry.register("调试", ArrivalAction)
 registry.register("文件名", FileExtAction)

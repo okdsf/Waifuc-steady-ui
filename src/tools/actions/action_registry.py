@@ -23,7 +23,7 @@ from .filter_actions import (
 )
 from .tagging_actions import (
     TaggingAction, TagFilterAction, TagOverlapDropAction, TagDropAction,
-    BlacklistedTagDropAction, TagRemoveUnderlineAction
+    BlacklistedTagDropAction, TagRemoveUnderlineAction,TagAppendAction
 )
 from .misc_actions import (
     SafetyAction, ArrivalAction, FileExtAction, FileOrderAction,

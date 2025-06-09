@@ -9,7 +9,8 @@ from waifuc.action import (
     TagOverlapDropAction as WaifucTagOverlapDropAction,
     TagDropAction as WaifucTagDropAction,
     BlacklistedTagDropAction as WaifucBlacklistedTagDropAction,
-    TagRemoveUnderlineAction as WaifucTagRemoveUnderlineAction
+    TagRemoveUnderlineAction as WaifucTagRemoveUnderlineAction,
+    TagAppendAction as WaifucTagAppendAction
 )
 
 class TaggingAction(WaifucActionWrapper):
@@ -73,3 +74,8 @@ class TagRemoveUnderlineAction(WaifucActionWrapper):
     """
     def __init__(self):
         super().__init__(WaifucTagRemoveUnderlineAction)
+
+class  TagAppendAction(WaifucActionWrapper):
+
+    def __init__(self, tags_to_append: List[str]):
+        super().__init__(WaifucTagAppendAction, tags_to_append=tags_to_append)

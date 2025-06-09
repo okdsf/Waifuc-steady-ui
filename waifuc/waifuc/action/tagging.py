@@ -127,3 +127,23 @@ class TagRemoveUnderlineAction(ProcessAction):
         tags = dict(item.meta.get('tags') or {})
         tags = {remove_underline(tag): score for tag, score in tags.items()}
         return ImageItem(item.image, {**item.meta, 'tags': tags})
+
+class TagAppendAction(ProcessAction):
+    def __init__(self, tags_to_append: List[str]):
+        """
+        初始化一个动作，用于向每个图像的标签中追加指定的字符串。
+        :param tags_to_append: 一个包含要追加的标签字符串的列表。
+        """
+        self.tags_to_append = tags_to_append
+
+    def process(self, item: ImageItem) -> ImageItem:
+        # 获取已有的标签，如果不存在则创建一个空字典
+        tags = dict(item.meta.get('tags') or {})
+
+        # 遍历需要追加的标签列表，并将它们添加到字典中
+        # 我们给予用户手动添加的标签最高的置信度分数 1.0
+        for tag_to_add in self.tags_to_append:
+            tags[tag_to_add] = 1.0
+
+        # 返回包含更新后标签的新ImageItem
+        return ImageItem(item.image, {**item.meta, 'tags': tags})

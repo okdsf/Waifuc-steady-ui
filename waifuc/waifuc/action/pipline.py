@@ -1,5 +1,5 @@
 """
-waifuc/action/pipeline.py - 核心功能模块
+waifuc/action/pipeline.py - 核心功能模块 (已按新逻辑修订)
 """
 import os
 import shutil
@@ -59,34 +59,6 @@ class DirectoryPipelineAction(TerminalAction):
         self.output_directory = None
         self.temp_root = None
 
-    def _calculate_upscale_factor(self, image_folder: str, target_size: tuple) -> float:
-        # (核心算法逻辑不变)
-        image_areas = []
-        files_to_scan = [f for f in os.listdir(image_folder) if os.path.isfile(os.path.join(image_folder, f))]
-        if not files_to_scan: return 1.0
-        
-        for filename in files_to_scan:
-            filepath = os.path.join(image_folder, filename)
-            try:
-                with Image.open(filepath) as img:
-                    w, h = img.size
-                    if w > 0 and h > 0:
-                        image_areas.append({'area': w * h, 'size': (w, h)})
-            except Exception: continue
-        
-        if not image_areas: return 1.0
-        image_areas.sort(key=lambda x: x['area'])
-        median_image_data = image_areas[len(image_areas) // 2]
-        median_w, median_h = median_image_data['size']
-        target_w, target_h = target_size
-
-        if median_w >= target_w and median_h >= target_h: return 1.0
-        
-        ratio_w = target_w / median_w if median_w > 0 else float('inf')
-        ratio_h = target_h / median_h if median_h > 0 else float('inf')
-        factor = max(ratio_w, ratio_h)
-        return np.ceil(factor * 10) / 10 if factor != float('inf') else 1.0
-
     def iter_from(self, iter_: Iterable[ImageItem]) -> Iterator[ImageItem]:
         if self.output_directory is None:
             raise RuntimeError("DirectoryPipelineAction 错误: output_directory 未被 WorkflowEngine 正确设置。")
@@ -135,10 +107,15 @@ class DirectoryPipelineAction(TerminalAction):
                 folder_path = branch_data['processing_path']
                 if not os.listdir(folder_path): continue
                 print(f"\n--- 开始处理 [{branch_type.capitalize()}] 分支 ---")
-                factor = self._calculate_upscale_factor(folder_path, branch_data['target_size'])
-                if factor > 1.0:
-                    upscaler = ESRGANAction(scale=factor, model_path=self.esrgan_model_path)
-                    self._apply_action_to_folder(folder_path, upscaler, f"放大 {branch_type.capitalize()}")
+                
+                # 新逻辑：对每张图片进行独立的、精确的放大
+                self._apply_per_image_upscaling(
+                    folder_path,
+                    branch_data['target_size'],
+                    f"精确放大 {branch_type.capitalize()}"
+                )
+                
+                # 裁剪逻辑保持不变，对放大后的所有图片进行统一裁剪
                 cropper = SmartCropAction(width=branch_data['target_size'][0], height=branch_data['target_size'][1])
                 self._apply_action_to_folder(folder_path, cropper, f"裁剪 {branch_type.capitalize()}")
 
@@ -153,7 +130,56 @@ class DirectoryPipelineAction(TerminalAction):
         
         yield from []
 
+    def _apply_per_image_upscaling(self, folder_path, target_size, desc):
+        """
+        对文件夹中的每张图片应用独立的放大逻辑。
+        """
+        temp_dir = folder_path + '_temp'
+        os.makedirs(temp_dir, exist_ok=True)
+        file_list = [f for f in os.listdir(folder_path) if os.path.isfile(os.path.join(folder_path, f))]
+        
+        target_w, target_h = target_size
+        
+        for filename in tqdm(file_list, desc=desc):
+            filepath = os.path.join(folder_path, filename)
+            dest_filepath = os.path.join(temp_dir, filename)
+            try:
+                with Image.open(filepath) as img:
+                    w, h = img.size
+
+                    # 如果图像的长和宽都大于等于目标尺寸，则无需放大，直接复制
+                    if w >= target_w and h >= target_h:
+                        shutil.copy2(filepath, dest_filepath)
+                        continue
+
+                    # 计算每张图片独立的放大系数
+                    ratio_w = target_w / w if w > 0 else float('inf')
+                    ratio_h = target_h / h if h > 0 else float('inf')
+                    factor = max(ratio_w, ratio_h)
+                    
+                    # 向上取整到一位小数
+                    scale = np.ceil(factor * 10) / 10
+                    
+                    # 应用放大
+                    upscaler = ESRGANAction(scale=scale, model_path=self.esrgan_model_path)
+                    processed_item = upscaler.process(ImageItem(img))
+                    processed_item.image.save(dest_filepath)
+
+            except Exception as e:
+                print(f"警告: 在 '{desc}' 阶段处理文件 {filename} 时出错: {e}")
+                # 如果处理失败，则复制原图以避免数据丢失
+                if not os.path.exists(dest_filepath):
+                     shutil.copy2(filepath, dest_filepath)
+
+        # 用处理后的图片替换原始图片
+        shutil.rmtree(folder_path)
+        os.rename(temp_dir, folder_path)
+
+
     def _apply_action_to_folder(self, folder_path, action, desc):
+        """
+        对文件夹中的所有图片应用一个统一的操作（主要用于裁剪）。
+        """
         temp_dir = folder_path + '_temp'
         os.makedirs(temp_dir, exist_ok=True)
         file_list = [f for f in os.listdir(folder_path) if os.path.isfile(os.path.join(folder_path, f))]
@@ -162,7 +188,11 @@ class DirectoryPipelineAction(TerminalAction):
                 with Image.open(os.path.join(folder_path, filename)) as img:
                     processed_item = action.process(ImageItem(img))
                     processed_item.image.save(os.path.join(temp_dir, filename))
-            except Exception as e: print(f"警告: 在 '{desc}' 阶段处理文件 {filename} 时出错: {e}")
+            except Exception as e: 
+                print(f"警告: 在 '{desc}' 阶段处理文件 {filename} 时出错: {e}")
+                # 如果处理失败，则复制原图以避免数据丢失
+                shutil.copy2(os.path.join(folder_path, filename), os.path.join(temp_dir, filename))
+                
         shutil.rmtree(folder_path)
         os.rename(temp_dir, folder_path)
 
