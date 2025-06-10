@@ -129,12 +129,17 @@ class TagRemoveUnderlineAction(ProcessAction):
         return ImageItem(item.image, {**item.meta, 'tags': tags})
 
 class TagAppendAction(ProcessAction):
-    def __init__(self, tags_to_append: List[str]):
+    # 接受单个字符串或字符串列表
+    def __init__(self, tags_to_append: Union[str, List[str]]):
         """
         初始化一个动作，用于向每个图像的标签中追加指定的字符串。
-        :param tags_to_append: 一个包含要追加的标签字符串的列表。
+        :param tags_to_append: 一个要追加的标签字符串，或包含多个标签的列表。
         """
-        self.tags_to_append = tags_to_append
+        # 如果传入的是单个字符串，则自动将其转换为列表
+        if isinstance(tags_to_append, str):
+            self.tags_to_append = [tags_to_append]
+        else:
+            self.tags_to_append = tags_to_append
 
     def process(self, item: ImageItem) -> ImageItem:
         # 获取已有的标签，如果不存在则创建一个空字典

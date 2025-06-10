@@ -6,27 +6,36 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple, Union, Callable
 from concurrent.futures import ThreadPoolExecutor
-from PIL import Image # 假设您会用到，根据您原始文件
+from PIL import Image
 import threading
 import collections
 
+# Assuming these imports are correct relative to your project structure
 from .workflow import Workflow, WorkflowStep
 from .execution_history import ExecutionRecord, history_manager
 from src.tools.actions.action_registry import registry as action_registry
 from src.tools.sources.source_registry import registry as source_registry
 from src.tools.actions.waifuc_actions import WaifucActionWrapper
+
 from waifuc.source import LocalSource
 from waifuc.action import TerminalAction
+from waifuc.export import SaveExporter, TextualInversionExporter
 
 logger = logging.getLogger(__name__)
 
-# 定义终结状态集合，请根据您的 ExecutionRecord.status 的实际值进行调整
-# 这些是任务达到最终状态后，不应再被修改的状态。
 TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
-# 如果您的 record.fail("任务被取消") 会将 status 设为 "cancelled"，请确保 "cancelled" 在这里。
-# 如果 record.fail() 总是将 status 设为 "failed"，那么 "cancelled" 可能不需要，
-# 或者您需要一个更具体的 "cancelled_from_queue" 等状态。
-# 为了安全，我包含了 "completed", "failed", "cancelled"。
+
+# --- NEW: Define all actions that generate or modify tags ---
+# Based on the tagging.py file you provided.
+TAG_RELATED_ACTIONS = {
+    'TaggingAction',
+    'TagFilterAction',
+    'TagOverlapDropAction',
+    'TagDropAction',
+    'BlacklistedTagDropAction',
+    'TagRemoveUnderlineAction',
+    'TagAppendAction',
+}
 
 class QueuedTask:
     def __init__(self,
@@ -68,7 +77,7 @@ class WorkflowEngine:
             source_params=source_params,
             output_directory=output_directory
         )
-        record.status = "queued" # 初始状态
+        record.status = "queued"
         history_manager.save_record(record)
         logger.info(f"Workflow '{workflow.name}' (Record ID: {record.id}) enqueued.")
         cancel_event = threading.Event()
@@ -117,15 +126,14 @@ class WorkflowEngine:
         self._running_tasks[record_to_process.id] = (future, record_to_process, cancel_event_for_task)
         future.add_done_callback(lambda f, rid=record_to_process.id: self._on_task_done(f, rid))
 
-    def _on_task_done(self, future_object, record_id: str): # Line ~160
+    def _on_task_done(self, future_object, record_id: str):
         try:
             exception = future_object.exception()
             if exception:
                 logger.error(f"Task (Record ID: {record_id}) execution raised an exception in future: {exception}", exc_info=exception)
                 if record_id in self._running_tasks:
                     _, record, _ = self._running_tasks[record_id]
-                    # --- MODIFICATION HERE ---
-                    if record.status not in TERMINAL_STATUSES: # Line ~164 where error occurred
+                    if record.status not in TERMINAL_STATUSES:
                         record.fail(f"Future exception: {str(exception)}")
                         history_manager.save_record(record)
         finally:
@@ -144,236 +152,208 @@ class WorkflowEngine:
             self._try_process_next_task_from_queue()
 
     def _execute_workflow_internal(self, workflow: Workflow,
-                                    source_type: str, source_params: Dict[str, Any],
-                                    output_directory: str, record: ExecutionRecord,
-                                    progress_callback: Optional[Callable[[str, float, str], None]] = None,
-                                    cancel_event: Optional[threading.Event] = None) -> None:
-            class CancelledError(Exception):
-                pass
+                                  source_type: str, source_params: Dict[str, Any],
+                                  output_directory: str, record: ExecutionRecord,
+                                  progress_callback: Optional[Callable[[str, float, str], None]] = None,
+                                  cancel_event: Optional[threading.Event] = None) -> None:
+        class CancelledError(Exception):
+            pass
 
-            task_logger = logging.getLogger(f"workflow.{record.id}")
-            file_handler = None
-            if not task_logger.handlers:
-                log_file = os.path.join("logs", f"{record.id}_log.txt")
-                file_handler = logging.FileHandler(log_file, 'w', 'utf-8')
-                file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-                task_logger.addHandler(file_handler)
-                task_logger.setLevel(logging.INFO)
-            else:
-                file_handler = task_logger.handlers[0] if task_logger.handlers else None
+        task_logger = logging.getLogger(f"workflow.{record.id}")
+        file_handler = None
+        if not task_logger.handlers:
+            log_file = os.path.join("logs", f"{record.id}_log.txt")
+            file_handler = logging.FileHandler(log_file, 'w', 'utf-8')
+            file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+            task_logger.addHandler(file_handler)
+            task_logger.setLevel(logging.INFO)
+        else:
+            file_handler = task_logger.handlers[0] if task_logger.handlers else None
 
-            temp_dir = None
-            try:
-                if record.status != "processing" :
-                    record.status = "processing"
-                    if record.start_time is None:
-                        record.start_time = time.time()
-                    history_manager.save_record(record)
-
-                os.makedirs(output_directory, exist_ok=True)
-                temp_dir = tempfile.mkdtemp()
-                temp_input_dir = os.path.join(temp_dir, 'input')
-                os.makedirs(temp_input_dir, exist_ok=True)
-
-                task_logger.info(f"Task {record.id} started. Workflow: {workflow.name}, Source: {source_type}, Output: {output_directory}")
-                if progress_callback:
-                    progress_callback("获取图像", 0.0, "准备图像来源...")
-                if cancel_event and cancel_event.is_set():
-                    raise CancelledError("任务在获取图像前被取消")
-
-                input_dir_for_processing = ""
-                try:
-                    # --- 修改点 1: 导入新的Exporter ---
-                    from waifuc.export import SaveExporter, TextualInversionExporter
-                    
-                    source = source_registry.create_source(source_type, **source_params)
-                    record.add_step_log("source_preparation", source_type, "started", "创建图像来源")
-                    task_logger.info("从来源获取图像...")
-                    if progress_callback: progress_callback("获取图像", 0.1, "正在获取图像...")
-                    if source_type == "LocalSource":
-                        input_dir_for_processing = source_params.get("directory", "")
-                        if not os.path.exists(input_dir_for_processing):
-                            raise FileNotFoundError(f"输入目录不存在: {input_dir_for_processing}")
-                        total_files = sum(1 for f in os.listdir(input_dir_for_processing)
-                                        if os.path.isfile(os.path.join(input_dir_for_processing, f)) and
-                                        f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff')))
-                        record.total_images = total_files
-                        task_logger.info(f"发现 {total_files} 个图像文件于 {input_dir_for_processing}")
-                    else:
-                        task_logger.info("开始下载图像...")
-                        if progress_callback: progress_callback("获取图像", 0.2, "下载图像...")
-                        # 下载步骤依然使用通用的 SaveExporter
-                        source.source.export(SaveExporter(temp_input_dir))
-                        total_files = sum(1 for f in os.listdir(temp_input_dir)
-                                        if os.path.isfile(os.path.join(temp_input_dir, f)) and
-                                        f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff')))
-                        record.total_images = total_files
-                        task_logger.info(f"已下载 {total_files} 个图像文件到 {temp_input_dir}")
-                        input_dir_for_processing = temp_input_dir
-                    record.add_step_log("source_preparation", source_type, "completed", f"成功获取 {record.total_images} 个图像文件")
-                except Exception as e:
-                    error_msg = f"获取图像失败: {str(e)}"
-                    task_logger.error(error_msg, exc_info=True)
-                    record.add_step_log("source_preparation", source_type, "failed", error_msg)
-                    record.fail(error_msg)
-                    history_manager.save_record(record)
-                    if progress_callback: progress_callback("错误", 0.0, error_msg)
-                    return
-                
-                if cancel_event and cancel_event.is_set(): raise CancelledError("任务在处理步骤前被取消")
-                current_dir_for_steps = input_dir_for_processing
-
-                for i, step in enumerate(workflow.steps):
-                    step_progress_base = 0.3 + (i / len(workflow.steps)) * 0.6
-                    unique_id_for_step_dir = uuid.uuid4().hex[:8]
-                    step_output_dir = os.path.join(temp_dir, f"step_{i+1}_{unique_id_for_step_dir}")
-                    os.makedirs(step_output_dir, exist_ok=True)
-                    task_logger.info(f"执行步骤 {i+1}/{len(workflow.steps)}: {step.action_name} (In: {current_dir_for_steps}, Out: {step_output_dir})")
-                    record.add_step_log(step.id, step.action_name, "started", f"开始执行步骤 {i+1}/{len(workflow.steps)}")
-                    if progress_callback: progress_callback("处理图像", step_progress_base, f"执行步骤 {i+1}/{len(workflow.steps)}: {step.action_name}")
-                    if cancel_event and cancel_event.is_set(): raise CancelledError(f"任务在步骤 {step.action_name} 执行前被取消")
-                    try:
-                        action = action_registry.create_action(step.action_name, **step.params)
-                        action_instance = action.action if isinstance(action, WaifucActionWrapper) and hasattr(action, 'action') else action
-                        
-                        if isinstance(action_instance, TerminalAction):
-                            action_instance.output_directory = output_directory
-                            task_logger.info(f"步骤 {i+1} 是一个 TerminalAction，已注入输出目录: {output_directory}")
-                        
-                        source_for_step = LocalSource(current_dir_for_steps)
-                        processed_output = source_for_step.attach(action_instance)
-                        
-                        # --- 修改点 2: 使用TextualInversionExporter ---
-                        # 这个Exporter专门用于创建图文对，会自动保存.txt文件
-                        processed_output.export(TextualInversionExporter(step_output_dir))
-                        
-                        temp_files_list = os.listdir(step_output_dir)
-                        task_logger.info(f"步骤 {i+1} 完成后，临时目录 {os.path.basename(step_output_dir)} 中包含 {len(temp_files_list)} 个文件: {temp_files_list[:10]}")
-
-                        def clean_metadata_local(directory_to_clean):
-                            try:
-                                for filename in os.listdir(directory_to_clean):
-                                    if filename.startswith('.') and filename.endswith('_meta.json'):
-                                        os.remove(os.path.join(directory_to_clean, filename))
-                            except Exception as e_clean: logger.warning(f"清理元数据失败 ({directory_to_clean}): {str(e_clean)}")
-                        clean_metadata_local(step_output_dir)
-                        output_files_count_step = len([f for f in os.listdir(step_output_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff'))])
-                        if not output_files_count_step and not isinstance(action_instance, TerminalAction):
-                            task_logger.warning(f"步骤 {step.action_name} 未生成任何图像到临时目录")
-                        record.add_step_log(step.id, step.action_name, "completed", f"步骤 {i+1}/{len(workflow.steps)} 成功完成")
-                        if progress_callback: progress_callback("处理图像", step_progress_base + 0.6/len(workflow.steps), f"步骤 {i+1}/{len(workflow.steps)} 完成")
-                        current_dir_for_steps = step_output_dir
-                    except Exception as e_step:
-                        error_msg_step = f"步骤 {i+1} ({step.action_name}) 执行失败: {str(e_step)}"
-                        task_logger.error(error_msg_step, exc_info=True)
-                        record.add_step_log(step.id, step.action_name, "failed", error_msg_step)
-                        record.fail(f"工作流因步骤 {step.action_name} 失败而中止: {error_msg_step}")
-                        history_manager.save_record(record)
-                        if progress_callback: progress_callback("错误", step_progress_base, f"步骤 {step.action_name} 失败，工作流中止")
-                        return
-                
-                if cancel_event and cancel_event.is_set(): raise CancelledError("任务在复制最终文件前被取消")
-                final_output_files_count = 0
-
-                is_last_action_terminal = False
-                if workflow.steps:
-                    last_step = workflow.steps[-1]
-                    last_action_wrapper = action_registry.create_action(last_step.action_name, **last_step.params)
-                    last_action_instance = last_action_wrapper.action if isinstance(last_action_wrapper, WaifucActionWrapper) else last_action_wrapper
-                    if isinstance(last_action_instance, TerminalAction):
-                        is_last_action_terminal = True
-                
-                if is_last_action_terminal:
-                    task_logger.info("最后一个 Action 是 TerminalAction，它已自行处理输出，引擎将跳过默认的最终保存步骤。")
-                    if os.path.exists(output_directory):
-                        final_output_files_count = sum(len(files) for _, _, files in os.walk(output_directory))
-                    else:
-                        final_output_files_count = 0
-                else:
-                    task_logger.info("执行标准的最终保存步骤...")
-                    if workflow.steps and os.path.exists(current_dir_for_steps):
-                        for root, _, files_in_final_step_dir in os.walk(current_dir_for_steps):
-                            if cancel_event and cancel_event.is_set(): raise CancelledError("复制操作被取消")
-                            
-                            for filename_final in files_in_final_step_dir:
-                                if filename_final.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff')):
-                                    task_logger.info(f"找到图片: {filename_final}, 正在查找关联标签...")
-                                    base_name, img_ext = os.path.splitext(filename_final)
-                                    unique_id = uuid.uuid4().hex[:8]
-                                    
-                                    unique_img_filename = f"{base_name}_{unique_id}{img_ext}"
-                                    src_img_path = os.path.join(root, filename_final)
-                                    dst_img_path = os.path.join(output_directory, unique_img_filename)
-                                    try:
-                                        shutil.copy2(src_img_path, dst_img_path)
-                                        final_output_files_count += 1
-                                    except Exception as e_copy:
-                                        task_logger.error(f"复制最终图片文件失败: {src_img_path} -> {dst_img_path}, 错误: {str(e_copy)}")
-                                        continue
-
-                                    tag_found = False
-                                    for tag_ext in ['.txt', '.caption']:
-                                        tag_filename = f"{base_name}{tag_ext}"
-                                        src_tag_path = os.path.join(root, tag_filename)
-                                        if os.path.exists(src_tag_path):
-                                            tag_found = True
-                                            task_logger.info(f"找到并准备复制标签: {tag_filename}")
-                                            unique_tag_filename = f"{base_name}_{unique_id}{tag_ext}"
-                                            dst_tag_path = os.path.join(output_directory, unique_tag_filename)
-                                            try:
-                                                shutil.copy2(src_tag_path, dst_tag_path)
-                                            except Exception as e_copy_tag:
-                                                task_logger.error(f"复制最终标签文件失败: {src_tag_path} -> {dst_tag_path}, 错误: {str(e_copy_tag)}")
-                                    
-                                    if not tag_found:
-                                        task_logger.warning(f"未找到图片 {filename_final} 的关联标签文件(.txt 或 .caption)。")
-
-                task_logger.info(f"已将 {final_output_files_count} 个文件保存到最终输出目录: {output_directory}")
-                def clean_metadata_local_final(directory_to_clean):
-                    try:
-                        for filename_clean in os.listdir(directory_to_clean):
-                            if filename_clean.startswith('.') and filename_clean.endswith('_meta.json'):
-                                os.remove(os.path.join(directory_to_clean, filename_clean))
-                    except Exception as e_clean_final: logger.warning(f"清理最终目录元数据失败 ({directory_to_clean}): {str(e_clean_final)}")
-                clean_metadata_local_final(output_directory)
-
-                record.complete(
-                    total_images=record.total_images if record.total_images is not None else 0,
-                    processed_images=final_output_files_count,
-                    success_images=final_output_files_count,
-                    failed_images=0
-                )
+        temp_dir = None
+        try:
+            if record.status != "processing" :
+                record.status = "processing"
+                if record.start_time is None:
+                     record.start_time = time.time()
                 history_manager.save_record(record)
-                completion_log_message = getattr(record, 'message', record.status)
-                task_logger.info(f"工作流执行完成. Record ID: {record.id}. 状态: {record.status}, 详情: {completion_log_message}")
-                if progress_callback: progress_callback("完成", 1.0, f"处理完成. 总图像: {record.total_images}, 成功: {final_output_files_count}")
 
-            except CancelledError as e:
-                error_msg = str(e)
-                task_logger.info(f"Record ID {record.id}: {error_msg} (Caught in _execute_workflow_internal)")
+            os.makedirs(output_directory, exist_ok=True)
+            temp_dir = tempfile.mkdtemp()
+            temp_input_dir = os.path.join(temp_dir, 'input')
+            os.makedirs(temp_input_dir, exist_ok=True)
+
+            task_logger.info(f"Task {record.id} started. Workflow: {workflow.name}, Source: {source_type}, Output: {output_directory}")
+            if progress_callback:
+                progress_callback("获取图像", 0.0, "准备图像来源...")
+            if cancel_event and cancel_event.is_set():
+                raise CancelledError("任务在获取图像前被取消")
+
+            input_dir_for_processing = ""
+            try:
+                source = source_registry.create_source(source_type, **source_params)
+                record.add_step_log("source_preparation", source_type, "started", "创建图像来源")
+                task_logger.info("从来源获取图像...")
+                if progress_callback: progress_callback("获取图像", 0.1, "正在获取图像...")
+                if source_type == "LocalSource":
+                    input_dir_for_processing = source_params.get("directory", "")
+                    if not os.path.exists(input_dir_for_processing):
+                        raise FileNotFoundError(f"输入目录不存在: {input_dir_for_processing}")
+                    total_files = sum(1 for f in os.listdir(input_dir_for_processing)
+                                    if os.path.isfile(os.path.join(input_dir_for_processing, f)) and
+                                    f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff')))
+                    record.total_images = total_files
+                    task_logger.info(f"发现 {total_files} 个图像文件于 {input_dir_for_processing}")
+                else:
+                    task_logger.info("开始下载图像...")
+                    if progress_callback: progress_callback("获取图像", 0.2, "下载图像...")
+                    source.source.export(SaveExporter(temp_input_dir, no_meta=False))
+                    total_files = sum(1 for f in os.listdir(temp_input_dir)
+                                    if os.path.isfile(os.path.join(temp_input_dir, f)) and
+                                    f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff')))
+                    record.total_images = total_files
+                    task_logger.info(f"已下载 {total_files} 个图像文件到 {temp_input_dir}")
+                    input_dir_for_processing = temp_input_dir
+                record.add_step_log("source_preparation", source_type, "completed", f"成功获取 {record.total_images} 个图像文件")
+            except Exception as e:
+                error_msg = f"获取图像失败: {str(e)}"
+                task_logger.error(error_msg, exc_info=True)
+                record.add_step_log("source_preparation", source_type, "failed", error_msg)
                 record.fail(error_msg)
                 history_manager.save_record(record)
-                if progress_callback:
-                    progress_val = 0.0
-                    progress_callback("取消", progress_val, error_msg)
+                if progress_callback: progress_callback("错误", 0.0, error_msg)
+                return
             
-            except Exception as e:
-                error_msg = f"工作流执行中发生意外错误: {str(e)}"
-                task_logger.error(f"Record ID {record.id}: {error_msg}", exc_info=True)
-                if record.status not in TERMINAL_STATUSES:
-                    record.fail(error_msg)
+            if cancel_event and cancel_event.is_set(): raise CancelledError("任务在处理步骤前被取消")
+            current_dir_for_steps = input_dir_for_processing
+            
+            # --- INTELLIGENT WORKFLOW LOGIC ---
+            # 1. Determine the workflow's intent based on action names
+            is_tagging_workflow = any(step.action_name in TAG_RELATED_ACTIONS for step in workflow.steps)
+            if is_tagging_workflow:
+                task_logger.info("Tagging-related action detected in workflow. Final export will be checked for tags.")
+            else:
+                task_logger.info("No tagging actions in workflow. Final export will only save images.")
+
+            for i, step in enumerate(workflow.steps):
+                step_progress_base = 0.3 + (i / len(workflow.steps)) * 0.6
+                
+                step_output_dir = os.path.join(temp_dir, f"step_{i+1}_{uuid.uuid4().hex[:8]}")
+                os.makedirs(step_output_dir, exist_ok=True)
+
+                task_logger.info(f"Executing step {i+1}/{len(workflow.steps)}: {step.action_name} (In: {current_dir_for_steps}, Out: {step_output_dir})")
+                record.add_step_log(step.id, step.action_name, "started", f"Starting step {i+1}/{len(workflow.steps)}")
+                if progress_callback: progress_callback("Processing images", step_progress_base, f"Executing step {i+1}/{len(workflow.steps)}: {step.action_name}")
+                if cancel_event and cancel_event.is_set(): raise CancelledError(f"Task cancelled before executing step {step.action_name}")
+                try:
+                    action = action_registry.create_action(step.action_name, **step.params)
+                    action_instance = action.action if isinstance(action, WaifucActionWrapper) and hasattr(action, 'action') else action
+                    
+                    if isinstance(action_instance, TerminalAction):
+                        action_instance.output_directory = output_directory
+                        task_logger.info(f"Step {i+1} is a TerminalAction, output directory injected: {output_directory}")
+                    
+                    source_for_step = LocalSource(current_dir_for_steps)
+                    processed_output = source_for_step.attach(action_instance)
+                    
+                    # For ALL steps, use SaveExporter to preserve the metadata chain.
+                    # The final conversion to .txt or simple image save is handled AFTER the loop.
+                    processed_output.export(SaveExporter(step_output_dir, no_meta=False))
+                    current_dir_for_steps = step_output_dir # The output of this step is the input for the next.
+                    
+                    record.add_step_log(step.id, step.action_name, "completed", f"Step {i+1}/{len(workflow.steps)} completed successfully.")
+                    if progress_callback: progress_callback("Processing images", step_progress_base + 0.6/len(workflow.steps), f"Step {i+1}/{len(workflow.steps)} complete")
+
+                except Exception as e_step:
+                    error_msg_step = f"Step {i+1} ({step.action_name}) failed: {str(e_step)}"
+                    task_logger.error(error_msg_step, exc_info=True)
+                    record.add_step_log(step.id, step.action_name, "failed", error_msg_step)
+                    record.fail(f"Workflow aborted due to failure in step {step.action_name}: {error_msg_step}")
                     history_manager.save_record(record)
-                if progress_callback:
-                    progress_callback("错误", 0.0, error_msg)
-            finally:
-                if temp_dir and os.path.exists(temp_dir):
-                    try:
-                        shutil.rmtree(temp_dir)
-                        task_logger.info(f"Temporary directory {temp_dir} removed for Record ID {record.id}.")
-                    except Exception as e_rm_temp: task_logger.error(f"Failed to remove temporary directory {temp_dir} for Record ID {record.id}: {e_rm_temp}")
-                if file_handler and task_logger:
-                    task_logger.removeHandler(file_handler)
-                    file_handler.close()
+                    if progress_callback: progress_callback("Error", step_progress_base, f"Step {step.action_name} failed, workflow aborted.")
+                    return
+            
+            if cancel_event and cancel_event.is_set(): raise CancelledError("Task cancelled before finalizing output.")
+
+            # --- FINAL EXPORT LOGIC (REVISED) ---
+            # After all steps are complete, `current_dir_for_steps` holds the result.
+            # Now, decide how to export it to the final `output_directory`.
+            task_logger.info(f"Finalizing export from last step's directory: {current_dir_for_steps}")
+            final_source = LocalSource(current_dir_for_steps)
+            final_exporter = None
+
+            if is_tagging_workflow:
+                # The workflow was *intended* for tagging. Now, VERIFY if tags actually exist.
+                has_actual_tags = False
+                try:
+                    # Peek at the first item to see if it has a non-empty tags dictionary.
+                    first_item = next(iter(final_source))
+                    if first_item.meta.get('tags'):
+                        has_actual_tags = True
+                except StopIteration:
+                    # The source is empty, so no items and no tags.
+                    has_actual_tags = False
+                
+                if has_actual_tags:
+                    # If tags were found, use the exporter that creates .txt files.
+                    task_logger.info("Verified that tags exist. Exporting final result with TextualInversionExporter.")
+                    final_exporter = TextualInversionExporter(output_directory)
+                else:
+                    # If no tags were found despite the intent, just save the images.
+                    task_logger.info("Workflow was intended for tagging, but no actual tags were found. Exporting images only.")
+                    final_exporter = SaveExporter(output_directory, no_meta=True)
+            else:
+                # If it was never a tagging workflow, just save the images.
+                task_logger.info("Non-tagging workflow. Exporting final result with SaveExporter (no_meta=True).")
+                final_exporter = SaveExporter(output_directory, no_meta=True)
+            
+            # Perform the final, decisive export.
+            final_source.export(final_exporter)
+            
+            # Count the final files in the output directory
+            final_output_files_count = 0
+            if os.path.exists(output_directory):
+                final_output_files_count = len([f for f in os.listdir(output_directory) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff'))])
+            
+            task_logger.info(f"Saved {final_output_files_count} files to the final output directory: {output_directory}")
+            
+            record.complete(
+                total_images=record.total_images if record.total_images is not None else 0,
+                processed_images=final_output_files_count,
+                success_images=final_output_files_count,
+                failed_images=0
+            )
+            history_manager.save_record(record)
+            completion_log_message = getattr(record, 'message', record.status)
+            task_logger.info(f"Workflow execution complete. Record ID: {record.id}. Status: {record.status}, Details: {completion_log_message}")
+            if progress_callback: progress_callback("Complete", 1.0, f"Processing complete. Total images: {record.total_images}, Successful: {final_output_files_count}")
+
+        except CancelledError as e:
+            error_msg = str(e)
+            task_logger.info(f"Record ID {record.id}: {error_msg} (Caught in _execute_workflow_internal)")
+            record.fail(error_msg)
+            history_manager.save_record(record)
+            if progress_callback:
+                progress_val = 0.0
+                progress_callback("Cancelled", progress_val, error_msg)
+        
+        except Exception as e:
+            error_msg = f"An unexpected error occurred during workflow execution: {str(e)}"
+            task_logger.error(f"Record ID {record.id}: {error_msg}", exc_info=True)
+            if record.status not in TERMINAL_STATUSES:
+                record.fail(error_msg)
+                history_manager.save_record(record)
+            if progress_callback:
+                progress_callback("Error", 0.0, error_msg)
+        finally:
+            if temp_dir and os.path.exists(temp_dir):
+                try:
+                    shutil.rmtree(temp_dir)
+                    task_logger.info(f"Temporary directory {temp_dir} removed for Record ID {record.id}.")
+                except Exception as e_rm_temp: task_logger.error(f"Failed to remove temporary directory {temp_dir} for Record ID {record.id}: {e_rm_temp}")
+            if file_handler and task_logger:
+                task_logger.removeHandler(file_handler)
+                file_handler.close()
 
     def get_running_tasks(self) -> Dict[str, ExecutionRecord]:
         running_records = {}
@@ -407,7 +387,6 @@ class WorkflowEngine:
         logger.info(f"Attempting to cancel task with Record ID: {execution_record_id}")
         if execution_record_id in self._running_tasks:
             _future, record, cancel_event_to_set = self._running_tasks[execution_record_id]
-            # --- MODIFICATION HERE ---
             if record.status not in TERMINAL_STATUSES:
                 logger.info(f"Signaling cancellation for actively processing Record ID: {execution_record_id}")
                 cancel_event_to_set.set()
@@ -423,8 +402,7 @@ class WorkflowEngine:
             if task_to_remove_from_queue:
                 self._task_queue.remove(task_to_remove_from_queue)
                 record_to_cancel = task_to_remove_from_queue.execution_record
-                # fail() should set status to 'failed' or 'cancelled'
-                record_to_cancel.fail("任务已从队列中取消") # This should set status to one of TERMINAL_STATUSES
+                record_to_cancel.fail("Task has been cancelled from the queue")
                 history_manager.save_record(record_to_cancel)
                 logger.info(f"Record ID: {execution_record_id} removed from queue and marked as cancelled.")
                 if self._current_processing_record_id == execution_record_id:
@@ -442,12 +420,11 @@ class WorkflowEngine:
                 queued_item_to_cancel = self._task_queue.popleft()
                 record = queued_item_to_cancel.execution_record
                 queued_item_to_cancel.cancel_event.set()
-                record.fail("任务因引擎关闭而从队列取消") # This should set status to one of TERMINAL_STATUSES
+                record.fail("Task cancelled from queue due to engine shutdown")
                 history_manager.save_record(record)
         active_tasks_to_cancel = list(self._running_tasks.items())
         if active_tasks_to_cancel: logger.info(f"Signaling cancellation for {len(active_tasks_to_cancel)} tasks in executor during shutdown.")
         for record_id_shut, (_future_shut, record_shut, cancel_event_shut) in active_tasks_to_cancel:
-            # --- MODIFICATION HERE ---
             if record_shut.status not in TERMINAL_STATUSES:
                 logger.info(f"Signaling shutdown cancel for Record ID: {record_id_shut}")
                 cancel_event_shut.set()
@@ -455,6 +432,5 @@ class WorkflowEngine:
         self.executor.shutdown(wait=True)
         logger.info("ThreadPoolExecutor shut down complete.")
         with self._queue_lock: self._current_processing_record_id = None
-
 
 workflow_engine = WorkflowEngine()
