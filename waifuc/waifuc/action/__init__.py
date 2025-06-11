@@ -20,3 +20,5 @@ from .crop import SmartCropAction
 from .esrgan import ESRGANAction
 from .pipline import DirectoryPipelineAction
 from .base import TerminalAction
+from .preprocess import PreprocessAction
+from .framing import  FramingCropAction

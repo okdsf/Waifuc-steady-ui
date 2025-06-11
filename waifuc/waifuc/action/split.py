@@ -46,41 +46,21 @@ class PersonSplitAction(BaseAction):
 
 
 class ThreeStageSplitAction(BaseAction):
+    
     def __init__(self, person_conf: Optional[dict] = None, halfbody_conf: Optional[dict] = None,
                  head_conf: Optional[dict] = None, head_scale: float = 1.5,
-                 split_eyes: bool = False, eye_conf: Optional[dict] = None, eye_scale: float = 2.4,
                  split_person: bool = True, keep_origin_tags: bool = False,
                  return_person: bool = True, return_halfbody: bool = True,
-                 return_head: bool = True, return_eyes: bool = False):
+                 return_head: bool = True):
         self.person_conf = dict(person_conf or {})
         self.halfbody_conf = dict(halfbody_conf or {})
         self.head_conf = dict(head_conf or {})
-        self.eye_conf = dict(eye_conf or {})
         self.head_scale = head_scale
-        self.eye_scale = eye_scale
-        self.split_eyes = split_eyes
         self.split_person = split_person
         self.keep_origin_tags = keep_origin_tags
         self.return_person = return_person
         self.return_halfbody = return_halfbody
         self.return_head = return_head
-        self.return_eyes = return_eyes
-
-    def _split_person(self, item: ImageItem, filebody, ext):
-        if self.split_person:
-            for i, (px, type_, score) in enumerate(detect_person(item.image, **self.person_conf), start=1):
-                person_image = item.image.crop(px)
-                person_meta = {
-                    **item.meta,
-                    'crop': {'type': type_, 'score': score},
-                }
-                if 'tags' in person_meta and not self.keep_origin_tags:
-                    del person_meta['tags']
-                if filebody is not None:
-                    person_meta['filename'] = f'{filebody}_person{i}{ext}'
-                yield i, ImageItem(person_image, person_meta)
-        else:
-            yield 1, item
 
     def iter(self, item: ImageItem) -> Iterator[ImageItem]:
         if 'filename' in item.meta:
@@ -89,45 +69,81 @@ class ThreeStageSplitAction(BaseAction):
         else:
             filebody, ext = None, None
 
-        for i, person_item in self._split_person(item, filebody, ext):
-            person_image = person_item.image
-            if self.return_person:
-                yield person_item
+        person_detections = detect_person(item.image, **self.person_conf) if self.split_person else \
+            [((0, 0, item.image.width, item.image.height), 'person', 1.0)]
 
-            half_detects = detect_halfbody(person_image, **self.halfbody_conf)
-            if half_detects:
-                halfbody_area, halfbody_type, halfbody_score = half_detects[0]
-                halfbody_image = person_image.crop(halfbody_area)
-                halfbody_meta = {
-                    **item.meta,
-                    'crop': {'type': halfbody_type, 'score': halfbody_score},
-                }
-                if 'tags' in halfbody_meta and not self.keep_origin_tags:
-                    del halfbody_meta['tags']
-                if filebody is not None:
-                    halfbody_meta['filename'] = f'{filebody}_person{i}_halfbody{ext}'
-                if self.return_halfbody:
-                    yield ImageItem(halfbody_image, halfbody_meta)
-
+        for i, (px, person_type, person_score) in enumerate(person_detections, start=1):
+            person_image = item.image.crop(px)
+            
+            # --- 在 person 内部检测 head 和 halfbody ---
             head_detects = detect_heads(person_image, **self.head_conf)
+            half_detects = detect_halfbody(person_image, **self.halfbody_conf)
+
+            # --- 构造包含所有层级信息的元数据 ---
+            contained_features = {}
             if head_detects:
+                contained_features['head'] = {'box': head_detects[0][0], 'score': head_detects[0][2]}
+            if half_detects:
+                contained_features['halfbody'] = {'box': half_detects[0][0], 'score': half_detects[0][2]}
+            
+            base_meta = {**item.meta}
+            if 'tags' in base_meta and not self.keep_origin_tags:
+                del base_meta['tags']
+
+            # --- 产出 Person Item ---
+            if self.return_person:
+                person_meta = {
+                    **base_meta,
+                    'base_detection': {'type': 'person', 'box': (0, 0, person_image.width, person_image.height)},
+                    'contained_features': contained_features # 将内部特征一并传递
+                }
+                if filebody: person_meta['filename'] = f'{filebody}_person{i}{ext}'
+                yield ImageItem(person_image, person_meta)
+
+            # --- 产出 Half-body Item ---
+            if self.return_halfbody and half_detects:
+                (hx1, hy1, hx2, hy2), halfbody_type, halfbody_score = half_detects[0]
+                halfbody_image = person_image.crop((hx1, hy1, hx2, hy2))
+                # 对于 halfbody 来说，它自身就是 base_detection
+                # 但我们也需要知道它内部是否包含 head
+                halfbody_contained = {}
+                if head_detects:
+                    # 需要计算 head 在 halfbody 裁剪框内的相对坐标
+                    (head_x0, head_y0, head_x1, head_y1) = head_detects[0][0]
+                    if not (head_x1 < hx1 or head_x0 > hx2 or head_y1 < hy1 or head_y0 > hy2): # 确保head在halfbody内
+                       halfbody_contained['head'] = {
+                           'box': (head_x0 - hx1, head_y0 - hy1, head_x1 - hx1, head_y1 - hy1),
+                           'score': head_detects[0][2]
+                       }
+                
+                halfbody_meta = {
+                    **base_meta,
+                    'base_detection': {'type': halfbody_type, 'box': (0, 0, halfbody_image.width, halfbody_image.height)},
+                    'contained_features': halfbody_contained,
+                }
+                if filebody: halfbody_meta['filename'] = f'{filebody}_person{i}_halfbody{ext}'
+                yield ImageItem(halfbody_image, halfbody_meta)
+
+            # --- 产出 Head Item ---
+            if self.return_head and head_detects:
                 (hx0, hy0, hx1, hy1), head_type, head_score = head_detects[0]
                 cx, cy = (hx0 + hx1) / 2, (hy0 + hy1) / 2
-                width, height = hx1 - hx0, hy1 - hy0
-                width = height = max(width, height) * self.head_scale
-                x0, y0 = int(max(cx - width / 2, 0)), int(max(cy - height / 2, 0))
-                x1, y1 = int(min(cx + width / 2, person_image.width)), int(min(cy + height / 2, person_image.height))
-                head_image = person_image.crop((x0, y0, x1, y1))
+                w, h = hx1 - hx0, hy1 - hy0
+                box_size = max(w, h) * self.head_scale
+                crop_x0, crop_y0 = int(max(cx - box_size/2, 0)), int(max(cy - box_size/2, 0))
+                
+                head_image = person_image.crop((crop_x0, crop_y0, crop_x0 + box_size, crop_y0 + box_size))
+                
                 head_meta = {
-                    **item.meta,
-                    'crop': {'type': head_type, 'score': head_score},
+                    **base_meta,
+                    'base_detection': { # 对于 head item, 其 base_detection 就是 head 本身
+                        'type': head_type,
+                        'box': (hx0 - crop_x0, hy0 - crop_y0, hx1 - crop_x0, hy1 - crop_y0)
+                    },
+                    'contained_features': {} # head 内部不再包含其他特征
                 }
-                if 'tags' in head_meta and not self.keep_origin_tags:
-                    del head_meta['tags']
-                if filebody is not None:
-                    head_meta['filename'] = f'{filebody}_person{i}_head{ext}'
-                if self.return_head:
-                    yield ImageItem(head_image, head_meta)
+                if filebody: head_meta['filename'] = f'{filebody}_person{i}_head{ext}'
+                yield ImageItem(head_image, head_meta)
 
                 if self.split_eyes:
                     eye_detects = detect_eyes(head_image, **self.eye_conf)
