@@ -29,33 +29,33 @@ class PersonSplitAction(WaifucActionWrapper):
 class ThreeStageSplitAction(WaifucActionWrapper):
     """
     进行全身、半身、头部的三阶段分割。
-    
-    参数:
-        person_conf (Optional[dict]): 人物检测配置，默认为 None。
-        halfbody_conf (Optional[dict]): 半身检测配置，默认为 None。
-        head_conf (Optional[dict]): 头部检测配置，默认为 None。
-        head_scale (float): 头部裁剪比例，默认为 1.5。
-        split_eyes (bool): 是否分割眼部，默认为 False。
-        eye_conf (Optional[dict]): 眼部检测配置，默认为 None。
-        eye_scale (float): 眼部裁剪比例，默认为 2.4。
-        split_person (bool): 是否分割人物，默认为 True。
-        keep_origin_tags (bool): 是否保留原始标签，默认为 False。
-        return_person (bool): 是否返回人物分割结果，默认为 True。
-        return_halfbody (bool): 是否返回半身分割结果，默认为 True。
-        return_head (bool): 是否返回头部分割结果，默认为 True。
-        return_eyes (bool): 是否返回眼部分割结果，默认为 False。
     """
-    def __init__(self, person_conf: Optional[Dict] = None, halfbody_conf: Optional[Dict] = None,
+    def __init__(self,
+                 person_conf: Optional[Dict] = None, halfbody_conf: Optional[Dict] = None,
                  head_conf: Optional[Dict] = None, head_scale: float = 1.5,
-                 split_eyes: bool = False, eye_conf: Optional[Dict] = None, eye_scale: float = 2.4,
                  split_person: bool = True, keep_origin_tags: bool = False,
                  return_person: bool = True, return_halfbody: bool = True,
-                 return_head: bool = True, return_eyes: bool = False):
-        super().__init__(WaifucThreeStageSplitAction, person_conf=person_conf, halfbody_conf=halfbody_conf,
-                        head_conf=head_conf, head_scale=head_scale, split_eyes=split_eyes,
-                        eye_conf=eye_conf, eye_scale=eye_scale, split_person=split_person,
-                        keep_origin_tags=keep_origin_tags, return_person=return_person,
-                        return_halfbody=return_halfbody, return_head=return_head, return_eyes=return_eyes)
+                 return_head: bool = True,
+                 # <<<--- 关键改动：添加了与新核心动作匹配的 extract_mask 参数 --- >>>
+                 extract_mask: bool = True):
+        """
+        :param extract_mask: [复选框] 是否提取精细的人物掩码。这是一个高消耗操作，但能为后续步骤提供最精确的几何信息。
+        ... (其他参数文档不变) ...
+        """
+        # <<<--- 关键改动：移除了过时的 eye 相关参数，添加了 extract_mask --- >>>
+        super().__init__(
+            WaifucThreeStageSplitAction,
+            person_conf=person_conf,
+            halfbody_conf=halfbody_conf,
+            head_conf=head_conf,
+            head_scale=head_scale,
+            split_person=split_person,
+            keep_origin_tags=keep_origin_tags,
+            return_person=return_person,
+            return_halfbody=return_halfbody,
+            return_head=return_head,
+            extract_mask=extract_mask  # 传递新参数
+        )
         
 class FrameSplitAction(WaifucActionWrapper):
     """

@@ -1,149 +1,154 @@
 import logging
 from PIL import Image
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Dict, Any
 
 from .base import ProcessAction
 from ..model import ImageItem
 
+# 设置日志记录
+logging.basicConfig(level=logging.INFO)
+
 class FramingCropAction(ProcessAction):
     """
-    An action for framing and composition, strictly following the robust logic
-    from the original 'crop.py' (SmartCropAction).
-
-    It uses pre-existing 'meta' data for high performance, avoiding redundant
-    detections. This version is designed to be the definitive fix for all
-    previously reported issues like black borders, content shifting, and
-    improper cropping by faithfully replicating a proven algorithm.
+    一个利用上游传入的 'geometric_info' 进行智能构图裁剪的下游模块。
+    它不再自己进行耗时的图像检测，而是直接利用元数据来定位和构图。
     """
-    def __init__(self, size: Tuple[int, int], head_room_factor: float = 0.15):
+    def __init__(self, size: Tuple[int, int], headroom_ratio: float = 0.15):
         """
-        Initializes the framing action.
+        :param size: 最终输出的目标尺寸 (width, height)。
+        :param headroom_ratio: 基于头部高度，在其上方留出的头顶空间比例。
+        """
+        if not isinstance(size, (tuple, list)) or len(size) != 2:
+            raise ValueError("Parameter 'size' must be a tuple of (width, height).")
+        self.target_w, self.target_h = size
+        self.headroom_ratio = headroom_ratio
 
-        :param size: The target size of the final output (width, height).
-        :param head_room_factor: Composition parameter for 'head' type, defining top space.
+    def _get_anchor_box_from_meta(self, item: ImageItem) -> Optional[Tuple[int, int, int, int]]:
         """
-        self.target_width, self.target_height = size
-        self.HEAD_ROOM_FACTOR = head_room_factor
-
-    def _get_anchor_box(self, meta: dict) -> Tuple[Optional[str], Optional[Tuple[float, float, float, float]]]:
+        从元数据中获取在当前图像坐标系下的绝对像素锚点边界框。
         """
-        Determines the highest priority anchor bounding box and its type from the meta.
-        Priority: head > halfbody > base_detection
-        Returns: (anchor_type, anchor_bounding_box)
-        """
-        contained = meta.get('contained_features', {})
-        if 'head' in contained and contained['head'].get('box'):
-            return 'head', contained['head']['box']
+        geo_info = item.meta.get('geometric_info', {})
+        relative_features = geo_info.get('relative_features', {})
+        affine_scale = geo_info.get('affine_scale', 1.0)
         
-        base_detection = meta.get('base_detection', {})
-        base_type = base_detection.get('type', '')
-        if 'head' in base_type and base_detection.get('box'):
-            return 'head', base_detection['box']
-            
-        if 'halfbody' in contained and contained['halfbody'].get('box'):
-            return 'halfbody', contained['halfbody']['box']
-            
-        return base_type, base_detection.get('box')
+        # 这里的 source_size 是指分割出的那张初始图的尺寸，不是最最原始的大图
+        # 但 PreprocessAction 并没有传递这个，它只传递了最原始的 source_image_size
+        # 幸运的是，我们可以通过当前图片尺寸和缩放比例反推回去
+        current_w, current_h = item.image.size
+        # 初始尺寸 ≈ 当前尺寸 / 缩放比例
+        original_crop_w = current_w / affine_scale
+        original_crop_h = current_h / affine_scale
+        original_crop_size = (original_crop_w, original_crop_h)
+
+        anchor_key = None
+        if 'head' in relative_features:
+            anchor_key = 'head'
+        elif 'halfbody' in relative_features:
+            anchor_key = 'halfbody'
+        elif 'person' in relative_features:
+            anchor_key = 'person'
+        
+        if not anchor_key:
+            return None
+
+        # 获取相对坐标
+        r_x1, r_y1, r_x2, r_y2 = relative_features[anchor_key]
+        
+        # 换算到初始分割图的绝对像素坐标
+        orig_abs_x1 = r_x1 * original_crop_size[0]
+        orig_abs_y1 = r_y1 * original_crop_size[1]
+        orig_abs_x2 = r_x2 * original_crop_size[0]
+        orig_abs_y2 = r_y2 * original_crop_size[1]
+
+        # 再根据仿射变换比例，计算出在当前这张图上的绝对像素坐标
+        current_abs_x1 = int(round(orig_abs_x1 * affine_scale))
+        current_abs_y1 = int(round(orig_abs_y1 * affine_scale))
+        current_abs_x2 = int(round(orig_abs_x2 * affine_scale))
+        current_abs_y2 = int(round(orig_abs_y2 * affine_scale))
+
+        return (current_abs_x1, current_abs_y1, current_abs_x2, current_abs_y2)
 
     def process(self, item: ImageItem) -> ImageItem:
-        # Load image data into memory to release file lock, preventing PermissionError on Windows.
-        item.image.load()
-        meta = item.meta
+        """
+        处理单个图像项。
+        """
+        if 'geometric_info' not in item.meta:
+            logging.warning(f"Skipping framing for {item!r} due to missing 'geometric_info'. Performing simple center crop.")
+            # 降级方案：执行简单的中心裁剪
+            return self._simple_center_crop(item)
+
+        current_image = item.image
+        img_w, img_h = current_image.size
+
+        # --- 1. 从元数据中获取锚点 ---
+        anchor_box = self._get_anchor_box_from_meta(item)
         
-        # --- Start of logic block faithfully replicated from crop.py ---
-        original_image_input = item.image
+        # 确定从当前图像中抠取内容的尺寸
+        content_w = min(img_w, self.target_w)
+        content_h = min(img_h, self.target_h)
 
-        # Ensure image is in RGB format with a white background
-        original_image_rgb = original_image_input
-        if original_image_input.mode in ['RGBA', 'LA', 'P']:
-            background = Image.new("RGB", original_image_input.size, (255,255,255))
-            background.paste(original_image_input, mask=original_image_input.split()[-1])
-            original_image_rgb = background
-        elif original_image_input.mode != 'RGB':
-            original_image_rgb = original_image_input.convert('RGB')
-
-        img_width, img_height = original_image_rgb.size
-
-        if img_width == 0 or img_height == 0:
-            return ImageItem(Image.new('RGB', (self.target_width, self.target_height), (255,0,0)), meta)
-
-        # --- Adaptation Point ---
-        # Instead of running detection, we derive the necessary boxes from meta.
-        # Here, the input image IS the character box.
-        anchor_type, anchor_box = self._get_anchor_box(meta)
-        
-        # Simulate the output of `_determine_char_box_and_features` from crop.py
-        # In this context, the pre-cropped item.image is our entire universe.
-        char_box_img = original_image_rgb if anchor_box else None
-        
-        # The primary feature is our anchor, with coordinates relative to char_box_img (which is item.image)
-        primary_feature_bbox = anchor_box
-        # The face box is the anchor box if the anchor is a head.
-        face_bbox_in_char_img = anchor_box if (anchor_box and 'head' in anchor_type) else None
-        
-        # --- End of Adaptation Point ---
-
-        final_cropped_content = None
-
-        if not char_box_img:
-            # Fallback "blind crop" logic from crop.py
-            blind_crop_w = min(img_width, self.target_width)
-            blind_crop_h = min(img_height, self.target_height)
+        # --- 2. 根据锚点计算裁剪框 ---
+        if anchor_box:
+            ax1, ay1, ax2, ay2 = anchor_box
+            anchor_w, anchor_h = ax2 - ax1, ay2 - ay1
+            anchor_cx, anchor_cy = (ax1 + ax2) / 2, (ay1 + ay2) / 2
             
-            crop_x1 = (img_width - blind_crop_w) // 2
-            crop_y1 = (img_height - blind_crop_h) // 2
-            final_cropped_content = original_image_rgb.crop((crop_x1, crop_y1, crop_x1 + blind_crop_w, crop_y1 + blind_crop_h))
-        else:
-            cb_img_w, cb_img_h = char_box_img.size
+            # 水平方向：始终以锚点为中心
+            crop_x1 = anchor_cx - content_w / 2
 
-            content_w_intended = min(cb_img_w, self.target_width)
-            content_h_intended = min(cb_img_h, self.target_height)
-            
-            # --- Exactly the same positioning logic as in crop.py ---
-            if face_bbox_in_char_img:
-                fx1, fy1, fx2, fy2 = face_bbox_in_char_img
-                fh = fy2 - fy1
-                fcx = fx1 + (fx2 - fx1) / 2
-                headroom = fh * self.HEAD_ROOM_FACTOR
-                crop_y1_in_cb = max(0, fy1 - headroom)
-                crop_x1_in_cb = fcx - content_w_intended / 2
-            elif primary_feature_bbox:
-                pf_x1, pf_y1, pf_x2, pf_y2 = primary_feature_bbox
-                pf_cx = (pf_x1 + pf_x2) / 2
-                pf_cy = (pf_y1 + pf_y2) / 2
-                crop_x1_in_cb = pf_cx - content_w_intended / 2
-                crop_y1_in_cb = pf_cy - content_h_intended / 2
-            else: # Should not happen if anchor_box exists, but as a safeguard
-                crop_x1_in_cb = (cb_img_w - content_w_intended) / 2
-                crop_y1_in_cb = (cb_img_h - content_h_intended) / 2
-
-            # --- Exactly the same robust clamping logic from crop.py ---
-            # This ensures the crop box stays within the bounds of char_box_img
-            final_crop_x1 = int(round(max(0, crop_x1_in_cb)))
-            final_crop_y1 = int(round(max(0, crop_y1_in_cb)))
-
-            final_crop_x2 = int(round(min(cb_img_w, final_crop_x1 + content_w_intended)))
-            final_crop_y2 = int(round(min(cb_img_h, final_crop_y1 + content_h_intended)))
-
-            # Recalculate top-left based on clamped bottom-right to preserve size
-            final_crop_x1 = int(round(max(0, final_crop_x2 - content_w_intended)))
-            final_crop_y1 = int(round(max(0, final_crop_y2 - content_h_intended)))
-
-            if final_crop_x1 >= final_crop_x2 or final_crop_y1 >= final_crop_y2:
-                final_cropped_content = char_box_img # Fallback to using the whole image
+            # 垂直方向：优先考虑头部构图
+            if 'head' in item.meta.get('geometric_info', {}).get('relative_features', {}):
+                # 为头部上方留出空间
+                headroom = anchor_h * self.headroom_ratio
+                crop_y1 = ay1 - headroom - (content_h / 2 - (anchor_h / 2 + headroom)) # 复杂计算，确保锚点头部在裁剪框中合适位置
+                crop_y1 = ay1 - headroom # 简化版本：从头顶上方预留空间处开始裁剪
             else:
-                final_cropped_content = char_box_img.crop((final_crop_x1, final_crop_y1, final_crop_x2, final_crop_y2))
-        
-        # --- Exactly the same final pasting logic from crop.py ---
-        if not final_cropped_content or final_cropped_content.width == 0 or final_cropped_content.height == 0:
-            final_image = Image.new('RGB', (self.target_width, self.target_height), (255, 0, 0)) # Red error image
-            return ImageItem(final_image, meta)
+                # 其他情况（半身、全身），简单居中
+                crop_y1 = anchor_cy - content_h / 2
+        else:
+            # --- 3. 降级：无有效锚点，执行中心裁剪 ---
+            logging.warning(f"Could not determine anchor from meta for {item!r}. Performing simple center crop.")
+            return self._simple_center_crop(item)
 
-        fcc_width, fcc_height = final_cropped_content.size
+        # --- 4. 钳制裁剪框，确保不越界 ---
+        final_x1 = max(0, min(int(round(crop_x1)), img_w - content_w))
+        final_y1 = max(0, min(int(round(crop_y1)), img_h - content_h))
+        final_x2 = final_x1 + content_w
+        final_y2 = final_y1 + content_h
+
+        # 执行裁剪
+        cropped_content = current_image.crop((final_x1, final_y1, final_x2, final_y2))
+
+        # --- 5. 粘贴到目标画布 ---
+        final_image = Image.new('RGB', (self.target_w, self.target_h), (255, 255, 255))
+        paste_x = (self.target_w - cropped_content.width) // 2
+        paste_y = (self.target_h - cropped_content.height) // 2
+        final_image.paste(cropped_content, (paste_x, paste_y))
         
-        final_image = Image.new('RGB', (self.target_width, self.target_height), (255, 255, 255))
-        paste_x = (self.target_width - fcc_width) // 2
-        paste_y = (self.target_height - fcc_height) // 2
-        final_image.paste(final_cropped_content, (paste_x, paste_y))
-            
-        return ImageItem(final_image, meta)
+        # 在这里可以清空或更新meta中的几何信息，因为它已经被消费掉了
+        final_meta = item.meta.copy()
+        # final_meta.pop('geometric_info', None) # 可选
+
+        return ImageItem(final_image, final_meta)
+
+    def _simple_center_crop(self, item: ImageItem) -> ImageItem:
+        """一个简单的中心裁剪降级方法"""
+        current_image = item.image
+        img_w, img_h = current_image.size
+        content_w = min(img_w, self.target_w)
+        content_h = min(img_h, self.target_h)
+        
+        crop_x1 = (img_w - content_w) // 2
+        crop_y1 = (img_h - content_h) // 2
+        crop_x2 = crop_x1 + content_w
+        crop_y2 = crop_y1 + content_h
+        
+        cropped_content = current_image.crop((crop_x1, crop_y1, crop_x2, crop_y2))
+        
+        final_image = Image.new('RGB', (self.target_w, self.target_h), (255, 255, 255))
+        paste_x = (self.target_w - cropped_content.width) // 2
+        paste_y = (self.target_height - cropped_content.height) // 2
+        final_image.paste(cropped_content, (paste_x, paste_y))
+        
+        return ImageItem(final_image, item.meta)
+

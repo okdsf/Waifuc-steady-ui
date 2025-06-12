@@ -1,10 +1,107 @@
 import os
-from typing import Iterator, Optional
+import copy
+from typing import Iterator, Optional, Any, Dict, Tuple, List
 
-from imgutils.detect import detect_person, detect_heads, detect_halfbody, detect_eyes
+import numpy as np
+from PIL import Image
+from imgutils.detect import detect_person, detect_heads, detect_halfbody
+from imgutils.segment import segment_rgba_with_isnetis
+from skimage.measure import find_contours
 
 from .base import BaseAction
 from ..model import ImageItem
+
+def _normalize_box(box: Tuple[float, float, float, float], source_size: Tuple[int, int]) -> Tuple[float, float, float, float]:
+    source_w, source_h = source_size
+    if source_w == 0 or source_h == 0: return 0.0, 0.0, 0.0, 0.0
+    x1, y1, x2, y2 = box
+    return x1 / source_w, y1 / source_h, x2 / source_w, y2 / source_h
+
+def _normalize_contours(contours: List[np.ndarray], source_size: Tuple[int, int]) -> List[List[Tuple[float, float]]]:
+    source_w, source_h = source_size
+    if source_w == 0 or source_h == 0: return []
+    normalized_contours = []
+    for contour in contours:
+        norm_contour = [(point[1] / source_w, point[0] / source_h) for point in contour]
+        normalized_contours.append(norm_contour)
+    return normalized_contours
+
+def _offset_box(box: Tuple[float, float, float, float], offset: Tuple[int, int]) -> Tuple[float, float, float, float]:
+    x1, y1, x2, y2 = box
+    off_x, off_y = offset
+    return x1 + off_x, y1 + off_y, x2 + off_x, y2 + off_y
+
+class ThreeStageSplitAction(BaseAction):
+    def __init__(self, person_conf: Optional[dict] = None, halfbody_conf: Optional[dict] = None, head_conf: Optional[dict] = None, head_scale: float = 1.5, split_person: bool = True, extract_mask: bool = True, keep_origin_tags: bool = False, return_person: bool = True, return_halfbody: bool = True, return_head: bool = True):
+        self.person_conf, self.halfbody_conf, self.head_conf = dict(person_conf or {}), dict(halfbody_conf or {}), dict(head_conf or {})
+        self.head_scale, self.split_person, self.extract_mask = head_scale, split_person, extract_mask
+        self.keep_origin_tags, self.return_person, self.return_halfbody, self.return_head = keep_origin_tags, return_person, return_halfbody, return_head
+
+    def iter(self, item: ImageItem) -> Iterator[ImageItem]:
+        source_image_rgb = item.image
+        source_w, source_h = source_image_rgb.size
+        filebody, ext = os.path.splitext(item.meta.get('filename', 'unknown'))
+        base_meta = {key: value for key, value in item.meta.items() if key != 'tags' or self.keep_origin_tags}
+
+        geometric_info_master: Dict[str, Any] = {'source_image_size': (source_w, source_h), 'relative_contours': None, 'relative_features': {}, 'affine_scale': 1.0}
+
+        if self.extract_mask:
+            try:
+                _, rgba_image = segment_rgba_with_isnetis(source_image_rgb)
+                if rgba_image and rgba_image.mode == 'RGBA':
+                    alpha_mask = np.array(rgba_image.split()[3])
+                    contours = find_contours(alpha_mask, 0.8)
+                    geometric_info_master['relative_contours'] = _normalize_contours(contours, (source_w, source_h))
+            except Exception: pass
+        
+        person_detections = detect_person(source_image_rgb, **self.person_conf) if self.split_person else [((0, 0, source_w, source_h), 'person', 1.0)]
+
+        for i, (person_box, _, _) in enumerate(person_detections, start=1):
+            px, py, px2, py2 = person_box
+            person_image = source_image_rgb.crop(person_box)
+            person_w, person_h = person_image.size
+            head_detects, half_detects = detect_heads(person_image, **self.head_conf), detect_halfbody(person_image, **self.halfbody_conf)
+
+            person_geo_info = copy.deepcopy(geometric_info_master)
+            person_geo_info['relative_features']['person'] = _normalize_box(person_box, (source_w, source_h))
+            if head_detects: person_geo_info['relative_features']['head'] = _normalize_box(_offset_box(head_detects[0][0], (px, py)), (source_w, source_h))
+            if half_detects: person_geo_info['relative_features']['halfbody'] = _normalize_box(_offset_box(half_detects[0][0], (px, py)), (source_w, source_h))
+
+            if self.return_person:
+                person_meta = {**base_meta, 'branch_type': 'person', 'geometric_info': copy.deepcopy(person_geo_info)}
+                person_meta['geometric_info']['crop_in_source'] = person_box
+                person_meta['filename'] = f'{filebody}_person{i}{ext}'
+                yield ImageItem(person_image, person_meta)
+
+            if self.return_halfbody and half_detects:
+                (hx1, hy1, hx2, hy2) = half_detects[0][0]
+                halfbody_image = person_image.crop((hx1, hy1, hx2, hy2))
+                halfbody_meta = {**base_meta, 'branch_type': 'halfbody', 'geometric_info': copy.deepcopy(person_geo_info)}
+                halfbody_meta['geometric_info']['crop_in_source'] = _offset_box((hx1, hy1, hx2, hy2), (px, py))
+                halfbody_meta['filename'] = f'{filebody}_person{i}_halfbody{ext}'
+                yield ImageItem(halfbody_image, halfbody_meta)
+
+            if self.return_head and head_detects:
+                (hx0, hy0, hx1, hy1) = head_detects[0][0]
+                cx, cy, w, h = (hx0 + hx1) / 2, (hy0 + hy1) / 2, hx1 - hx0, hy1 - hy0
+                box_size = max(w, h) * self.head_scale
+                
+                crop_x0, crop_y0 = cx - box_size / 2, cy - box_size / 2
+                crop_x1, crop_y1 = cx + box_size / 2, cy + box_size / 2
+                
+                # <<<--- 关键修复：添加严格的边界检查和坐标钳制，杜绝黑边 --- >>>
+                final_crop_x0, final_crop_y0 = int(max(0, crop_x0)), int(max(0, crop_y0))
+                final_crop_x1, final_crop_y1 = int(min(person_w, crop_x1)), int(min(person_h, crop_y1))
+
+                if final_crop_x0 < final_crop_x1 and final_crop_y0 < final_crop_y1:
+                    head_crop_box_rel = (final_crop_x0, final_crop_y0, final_crop_x1, final_crop_y1)
+                    head_image = person_image.crop(head_crop_box_rel)
+                    head_meta = {**base_meta, 'branch_type': 'head', 'geometric_info': copy.deepcopy(person_geo_info)}
+                    head_meta['geometric_info']['crop_in_source'] = _offset_box(head_crop_box_rel, (px, py))
+                    head_meta['filename'] = f'{filebody}_person{i}_head{ext}'
+                    yield ImageItem(head_image, head_meta)
+
+    def reset(self): pass
 
 
 class PersonSplitAction(BaseAction):
@@ -45,127 +142,3 @@ class PersonSplitAction(BaseAction):
         pass
 
 
-class ThreeStageSplitAction(BaseAction):
-    
-    def __init__(self, person_conf: Optional[dict] = None, halfbody_conf: Optional[dict] = None,
-                 head_conf: Optional[dict] = None, head_scale: float = 1.5,
-                 split_person: bool = True, keep_origin_tags: bool = False,
-                 return_person: bool = True, return_halfbody: bool = True,
-                 return_head: bool = True):
-        self.person_conf = dict(person_conf or {})
-        self.halfbody_conf = dict(halfbody_conf or {})
-        self.head_conf = dict(head_conf or {})
-        self.head_scale = head_scale
-        self.split_person = split_person
-        self.keep_origin_tags = keep_origin_tags
-        self.return_person = return_person
-        self.return_halfbody = return_halfbody
-        self.return_head = return_head
-
-    def iter(self, item: ImageItem) -> Iterator[ImageItem]:
-        if 'filename' in item.meta:
-            filename = item.meta['filename']
-            filebody, ext = os.path.splitext(filename)
-        else:
-            filebody, ext = None, None
-
-        person_detections = detect_person(item.image, **self.person_conf) if self.split_person else \
-            [((0, 0, item.image.width, item.image.height), 'person', 1.0)]
-
-        for i, (px, person_type, person_score) in enumerate(person_detections, start=1):
-            person_image = item.image.crop(px)
-            
-            # --- 在 person 内部检测 head 和 halfbody ---
-            head_detects = detect_heads(person_image, **self.head_conf)
-            half_detects = detect_halfbody(person_image, **self.halfbody_conf)
-
-            # --- 构造包含所有层级信息的元数据 ---
-            contained_features = {}
-            if head_detects:
-                contained_features['head'] = {'box': head_detects[0][0], 'score': head_detects[0][2]}
-            if half_detects:
-                contained_features['halfbody'] = {'box': half_detects[0][0], 'score': half_detects[0][2]}
-            
-            base_meta = {**item.meta}
-            if 'tags' in base_meta and not self.keep_origin_tags:
-                del base_meta['tags']
-
-            # --- 产出 Person Item ---
-            if self.return_person:
-                person_meta = {
-                    **base_meta,
-                    'base_detection': {'type': 'person', 'box': (0, 0, person_image.width, person_image.height)},
-                    'contained_features': contained_features # 将内部特征一并传递
-                }
-                if filebody: person_meta['filename'] = f'{filebody}_person{i}{ext}'
-                yield ImageItem(person_image, person_meta)
-
-            # --- 产出 Half-body Item ---
-            if self.return_halfbody and half_detects:
-                (hx1, hy1, hx2, hy2), halfbody_type, halfbody_score = half_detects[0]
-                halfbody_image = person_image.crop((hx1, hy1, hx2, hy2))
-                # 对于 halfbody 来说，它自身就是 base_detection
-                # 但我们也需要知道它内部是否包含 head
-                halfbody_contained = {}
-                if head_detects:
-                    # 需要计算 head 在 halfbody 裁剪框内的相对坐标
-                    (head_x0, head_y0, head_x1, head_y1) = head_detects[0][0]
-                    if not (head_x1 < hx1 or head_x0 > hx2 or head_y1 < hy1 or head_y0 > hy2): # 确保head在halfbody内
-                       halfbody_contained['head'] = {
-                           'box': (head_x0 - hx1, head_y0 - hy1, head_x1 - hx1, head_y1 - hy1),
-                           'score': head_detects[0][2]
-                       }
-                
-                halfbody_meta = {
-                    **base_meta,
-                    'base_detection': {'type': halfbody_type, 'box': (0, 0, halfbody_image.width, halfbody_image.height)},
-                    'contained_features': halfbody_contained,
-                }
-                if filebody: halfbody_meta['filename'] = f'{filebody}_person{i}_halfbody{ext}'
-                yield ImageItem(halfbody_image, halfbody_meta)
-
-            # --- 产出 Head Item ---
-            if self.return_head and head_detects:
-                (hx0, hy0, hx1, hy1), head_type, head_score = head_detects[0]
-                cx, cy = (hx0 + hx1) / 2, (hy0 + hy1) / 2
-                w, h = hx1 - hx0, hy1 - hy0
-                box_size = max(w, h) * self.head_scale
-                crop_x0, crop_y0 = int(max(cx - box_size/2, 0)), int(max(cy - box_size/2, 0))
-                
-                head_image = person_image.crop((crop_x0, crop_y0, crop_x0 + box_size, crop_y0 + box_size))
-                
-                head_meta = {
-                    **base_meta,
-                    'base_detection': { # 对于 head item, 其 base_detection 就是 head 本身
-                        'type': head_type,
-                        'box': (hx0 - crop_x0, hy0 - crop_y0, hx1 - crop_x0, hy1 - crop_y0)
-                    },
-                    'contained_features': {} # head 内部不再包含其他特征
-                }
-                if filebody: head_meta['filename'] = f'{filebody}_person{i}_head{ext}'
-                yield ImageItem(head_image, head_meta)
-
-                if self.split_eyes:
-                    eye_detects = detect_eyes(head_image, **self.eye_conf)
-                    for j, ((ex0, ey0, ex1, ey1), eye_type, eye_score) in enumerate(eye_detects):
-                        cx, cy = (ex0 + ex1) / 2, (ey0 + ey1) / 2
-                        width, height = ex1 - ex0, ey1 - ey0
-                        width = height = max(width, height) * self.eye_scale
-                        x0, y0 = int(max(cx - width / 2, 0)), int(max(cy - height / 2, 0))
-                        x1, y1 = int(min(cx + width / 2, head_image.width)), \
-                            int(min(cy + height / 2, head_image.height))
-                        eye_image = head_image.crop((x0, y0, x1, y1))
-                        eye_meta = {
-                            **item.meta,
-                            'crop': {'type': eye_type, 'score': eye_score},
-                        }
-                        if 'tags' in eye_meta and not self.keep_origin_tags:
-                            del eye_meta['tags']
-                        if filebody is not None:
-                            eye_meta['filename'] = f'{filebody}_person{i}_head_eye{j}{ext}'
-                        if self.return_eyes:
-                            yield ImageItem(eye_image, eye_meta)
-
-    def reset(self):
-        pass
-   
