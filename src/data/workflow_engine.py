@@ -173,7 +173,9 @@ class WorkflowEngine:
         temp_dir = None
         try:
             if record.status != "processing" :
-                record.status = "processing"
+                record.set_status("running")
+                import time
+                time.sleep(2)  # 假装任务在跑2秒，便于UI捕捉
                 if record.start_time is None:
                      record.start_time = time.time()
                 history_manager.save_record(record)
@@ -387,32 +389,43 @@ class WorkflowEngine:
         return None
 
     def cancel_task(self, execution_record_id: str) -> bool:
-        logger.info(f"Attempting to cancel task with Record ID: {execution_record_id}")
+        print(f"[cancel_task] called for {execution_record_id}")
+        print(f"[cancel_task] _running_tasks keys: {list(self._running_tasks.keys())}")
+        print(f"[cancel_task] _current_processing_record_id: {self._current_processing_record_id}")
+        
         if execution_record_id in self._running_tasks:
+            print(f"[cancel_task] found running task {execution_record_id}")
             _future, record, cancel_event_to_set = self._running_tasks[execution_record_id]
+            print(f"[cancel_task] task status: {record.status}")
             if record.status not in TERMINAL_STATUSES:
-                logger.info(f"Signaling cancellation for actively processing Record ID: {execution_record_id}")
+                print(f"[cancel_task] signaling cancel_event for {execution_record_id}")
                 cancel_event_to_set.set()
                 return True
             else:
-                logger.info(f"Record ID: {execution_record_id} is already finished (status: {record.status}), cannot cancel.")
+                print(f"[cancel_task] task {execution_record_id} already finished (status: {record.status})")
                 return False
+        
+        # 如果任务在队列里，还没开始
         with self._queue_lock:
+            print(f"[cancel_task] checking queue, queue length: {len(self._task_queue)}")
             task_to_remove_from_queue: Optional[QueuedTask] = None
-            for queued_item_in_q in self._task_queue:
+            for i, queued_item_in_q in enumerate(self._task_queue):
+                print(f"[cancel_task] queue item {i}: {queued_item_in_q.execution_record.id}")
                 if queued_item_in_q.execution_record.id == execution_record_id:
-                    task_to_remove_from_queue = queued_item_in_q; break
+                    task_to_remove_from_queue = queued_item_in_q
+                    break
             if task_to_remove_from_queue:
+                print(f"[cancel_task] found queued task {execution_record_id}, removing from queue")
                 self._task_queue.remove(task_to_remove_from_queue)
                 record_to_cancel = task_to_remove_from_queue.execution_record
                 record_to_cancel.fail("Task has been cancelled from the queue")
                 history_manager.save_record(record_to_cancel)
-                logger.info(f"Record ID: {execution_record_id} removed from queue and marked as cancelled.")
                 if self._current_processing_record_id == execution_record_id:
                     self._current_processing_record_id = None
                     self._try_process_next_task_from_queue()
                 return True
-        logger.warning(f"Record ID {execution_record_id} not found for cancellation (neither processing nor queued).")
+        
+        print(f"[cancel_task] Record ID {execution_record_id} not found for cancellation (neither processing nor queued).")
         return False
 
     def shutdown(self) -> None:

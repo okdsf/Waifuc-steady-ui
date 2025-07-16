@@ -47,6 +47,7 @@ class ExecutionRecord:
         self.failed_images = 0
         
         self.step_logs: List[Dict[str, Any]] = []
+        self._status_callbacks = []  # 新增：状态变更回调列表
     
     def add_step_log(self, step_id: str, step_name: str, status: str, 
                     message: str = None, details: Dict[str, Any] = None) -> None:
@@ -161,6 +162,20 @@ class ExecutionRecord:
     def __repr__(self) -> str:
         return f"ExecutionRecord(id={self.id}, workflow='{self.workflow_name}', status={self.status})"
 
+    def subscribe_status(self, callback):
+        """注册状态变更回调"""
+        self._status_callbacks.append(callback)
+
+    def set_status(self, new_status):
+        """设置状态并通知订阅者"""
+        self.status = new_status
+        for cb in self._status_callbacks:
+            try:
+                cb(self.status)
+            except Exception as e:
+                import traceback
+                print(f"[ExecutionRecord] 状态回调异常: {e}\n{traceback.format_exc()}")
+
 
 class ExecutionHistoryManager:
     """
@@ -202,7 +217,11 @@ class ExecutionHistoryManager:
         Returns:
             执行记录对象或None
         """
-        return self._records.get(record_id)
+        print(f"[get_record] called for {record_id}")
+        print(f"[get_record] _records keys: {list(self._records.keys())}")
+        record = self._records.get(record_id)
+        print(f"[get_record] returned record: {record}")
+        return record
     
     def get_all_records(self) -> List[ExecutionRecord]:
         """

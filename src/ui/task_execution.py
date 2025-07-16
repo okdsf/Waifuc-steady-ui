@@ -33,7 +33,6 @@ class TaskExecutionWidget(QWidget):
         self.output_directory = output_directory
 
         self.execution_record: Optional[ExecutionRecord] = None
-        self.is_running = False
 
         # 初始化UI
         self.init_ui()
@@ -42,6 +41,26 @@ class TaskExecutionWidget(QWidget):
         self.progress_signal.connect(self.on_progress_update)
         self.log_signal.connect(self.add_log)
         self.result_signal.connect(self.update_result_tree)
+
+    def is_running(self) -> bool:
+        """检查任务是否正在运行"""
+        return bool(self.execution_record and 
+                   self.execution_record.status in ["running", "processing"])
+
+    def can_stop(self) -> bool:
+        """检查任务是否可以停止"""
+        return bool(self.execution_record and 
+                   self.execution_record.status in ["running", "processing"])
+
+    def is_queued(self) -> bool:
+        """检查任务是否在队列中"""
+        return bool(self.execution_record and 
+                   self.execution_record.status == "queued")
+
+    def is_completed(self) -> bool:
+        """检查任务是否已完成"""
+        return bool(self.execution_record and 
+                   self.execution_record.status in ["completed", "failed", "cancelled"])
 
     def init_ui(self):
         """初始化UI"""
@@ -153,7 +172,7 @@ class TaskExecutionWidget(QWidget):
 
     def start_task(self):
         """开始执行任务"""
-        if self.is_running:
+        if self.is_running():
             return
 
         # 重置UI
@@ -164,7 +183,7 @@ class TaskExecutionWidget(QWidget):
 
         # 更新按钮状态
         self.start_button.setEnabled(False)
-        self.stop_button.setEnabled(True)
+        self.stop_button.setEnabled(False)  # 等待任务真正开始
 
         # 添加首条日志
         self.log_signal.emit(self.tr("开始执行任务..."))
@@ -181,7 +200,9 @@ class TaskExecutionWidget(QWidget):
             self.on_progress_callback
         )
 
-        self.is_running = True
+        # 注册状态变更回调
+        if self.execution_record:
+            self.execution_record.subscribe_status(self.on_status_changed)
 
         # 启动更新计时器
         self.update_timer.start()
@@ -189,9 +210,26 @@ class TaskExecutionWidget(QWidget):
         # 发送任务开始信号
         self.task_started.emit()
 
+        # 主动刷新主窗口的停止按钮状态
+        main_window = self.parent()
+        from PyQt5.QtWidgets import QMainWindow
+        while main_window and not isinstance(main_window, QMainWindow):
+            main_window = main_window.parent()
+        if main_window and hasattr(main_window, 'update_stop_button_state'):
+            main_window.update_stop_button_state()
+
+    def on_status_changed(self, status):
+        from PyQt5.QtWidgets import QMainWindow
+        main_window = self.parent()
+        while main_window and not isinstance(main_window, QMainWindow):
+            main_window = main_window.parent()
+        if main_window and hasattr(main_window, 'update_stop_button_state'):
+            main_window.update_stop_button_state()
+
     def stop_task(self):
-        """停止执行任务"""
-        if not self.is_running or not self.execution_record:
+        # 直接根据execution_record.status判断
+        if not self.can_stop():
+            QMessageBox.information(self, self.tr("提示"), self.tr("当前任务没有在运行。"))
             return
 
         # 确认停止
@@ -203,26 +241,26 @@ class TaskExecutionWidget(QWidget):
         if reply != QMessageBox.Yes:
             return
 
-        # 尝试取消任务
-        if workflow_engine.cancel_task(self.execution_record.id):
-            self.log_signal.emit(self.tr("任务已取消"))
-            self.status_label.setText(self.tr("已取消"))
-
-            # 更新任务状态
-            self.is_running = False
-
-            # 停止更新计时器
-            self.update_timer.stop()
-
-            # 更新按钮状态
-            self.start_button.setEnabled(True)
-            self.stop_button.setEnabled(False)
-
-            # 发送任务完成信号
-            self.task_finished.emit(False, self.tr("任务已取消"))
-        else:
-            self.log_signal.emit(self.tr("无法取消任务"))
-            QMessageBox.warning(self, self.tr("错误"), self.tr("无法取消任务，任务可能已完成或出错。"))
+        try:
+            # 尝试取消任务
+            if workflow_engine.cancel_task(self.execution_record.id):
+                self.log_signal.emit(self.tr("正在取消任务..."))
+                self.status_label.setText(self.tr("正在取消..."))
+                self.start_button.setEnabled(True)
+                self.stop_button.setEnabled(False)
+                self.update_timer.stop()
+                self.task_finished.emit(False, self.tr("任务已取消"))
+            else:
+                record = history_manager.get_record(self.execution_record.id)
+                if record and record.status in ["completed", "failed", "cancelled"]:
+                    self.log_signal.emit(self.tr("任务已经完成或已取消"))
+                    QMessageBox.information(self, self.tr("提示"), self.tr("任务已经完成或已取消。"))
+                else:
+                    self.log_signal.emit(self.tr("无法取消任务"))
+                    QMessageBox.warning(self, self.tr("错误"), self.tr("无法取消任务，请稍后重试。"))
+        except Exception as e:
+            self.log_signal.emit(self.tr(f"停止任务时发生错误: {str(e)}"))
+            QMessageBox.critical(self, self.tr("错误"), self.tr(f"停止任务时发生错误: {str(e)}"))
 
     def on_progress_callback(self, status: str, progress: float, message: str):
         """
@@ -310,28 +348,67 @@ class TaskExecutionWidget(QWidget):
         # 展开所有项
         self.result_tree.expandAll()
 
+    def check_task_status(self):
+        """检查任务状态并更新UI"""
+        if not self.execution_record:
+            return
+            
+        try:
+            record = history_manager.get_record(self.execution_record.id)
+            if not record:
+                return
+                
+            # 更新执行记录
+            self.execution_record = record
+            
+            # 检查任务状态是否发生变化
+            if record.status != "running" and self.is_running():
+                # 任务已完成或失败
+                self.update_timer.stop()
+                self.start_button.setEnabled(True)
+                self.stop_button.setEnabled(False)
+                
+                # 根据状态更新UI
+                if record.status == "completed":
+                    self.progress_bar.setValue(100)
+                    self.status_label.setText(self.tr(f"已完成 (成功: {record.success_images}, 失败: {record.failed_images})"))
+                    self.log_signal.emit(self.tr(f"任务完成. 总图像: {record.total_images}, 成功: {record.success_images}, 失败: {record.failed_images}"))
+                    self.task_finished.emit(True, self.tr(f"成功处理 {record.success_images} 个图像, 失败 {record.failed_images} 个"))
+                elif record.status == "failed":
+                    if record.error_message and ("cancelled" in record.error_message.lower() or "取消" in record.error_message):
+                        self.status_label.setText(self.tr("已取消"))
+                        self.log_signal.emit(self.tr("任务已取消"))
+                        self.task_finished.emit(False, self.tr("任务已取消"))
+                    else:
+                        self.status_label.setText(self.tr(f"出错: {record.error_message}"))
+                        self.log_signal.emit(self.tr(f"任务失败: {record.error_message}"))
+                        self.task_finished.emit(False, record.error_message or self.tr("任务执行失败"))
+                elif record.status == "cancelled":
+                    self.status_label.setText(self.tr("已取消"))
+                    self.log_signal.emit(self.tr("任务已取消"))
+                    self.task_finished.emit(False, self.tr("任务已取消"))
+                else:
+                    self.status_label.setText(self.tr(f"状态: {record.status}"))
+                    self.log_signal.emit(self.tr(f"任务状态: {record.status}"))
+                    self.task_finished.emit(False, self.tr(f"任务状态: {record.status}"))
+        except Exception as e:
+            self.log_signal.emit(self.tr(f"检查任务状态时发生错误: {str(e)}"))
+
     def update_progress(self):
         """更新进度和结果显示"""
-        if not self.is_running or not self.execution_record:
+        if not self.execution_record:
             return
 
-        # 检查执行记录状态
-        record = history_manager.get_record(self.execution_record.id)
-        if not record:
-            return
+        # 直接使用自己的execution_record，不依赖history_manager
+        record = self.execution_record
 
-        # 更新执行记录
-        self.execution_record = record
-
-        # 检查是否完成
-        if record.status != "running":
+        # 根据执行记录状态更新UI
+        if record.status == "running":
+            self.start_button.setEnabled(False)
+            self.stop_button.setEnabled(True)
+        elif record.status in ["completed", "failed", "cancelled"]:
             # 任务完成
-            self.is_running = False
-
-            # 停止更新计时器
             self.update_timer.stop()
-
-            # 更新按钮状态
             self.start_button.setEnabled(True)
             self.stop_button.setEnabled(False)
 
@@ -360,6 +437,11 @@ class TaskExecutionWidget(QWidget):
                 self.log_signal.emit(self.tr(f"任务状态: {record.status}"))
                 # 发送任务完成信号
                 self.task_finished.emit(False, self.tr(f"任务状态: {record.status}"))
+        elif record.status == "queued":
+            # 任务在队列中，等待执行
+            self.start_button.setEnabled(False)
+            self.stop_button.setEnabled(False)
+            self.status_label.setText(self.tr("等待执行..."))
 
     def open_output_directory(self):
         """打开输出目录"""
