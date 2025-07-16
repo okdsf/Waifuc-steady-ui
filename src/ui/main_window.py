@@ -53,11 +53,6 @@ class MainWindow(QMainWindow):
         self.action_run_workflow = QAction(self.tr("运行工作流"), self)
         self.action_run_workflow.triggered.connect(self.on_run_workflow)
         self.workflow_toolbar.addAction(self.action_run_workflow)
-        # 停止工作流
-        self.action_stop_workflow = QAction(self.tr("停止工作流"), self)
-        self.action_stop_workflow.triggered.connect(self.on_stop_workflow)
-        self.action_stop_workflow.setEnabled(False)
-        self.workflow_toolbar.addAction(self.action_stop_workflow)
         
         # 新增：动作说明按钮
         self.action_action_help = QAction(self.tr("动作说明"), self)
@@ -116,8 +111,7 @@ class MainWindow(QMainWindow):
         self.toolbar.addSeparator()
         self.toolbar.addAction(self.action_delete_workflow)
         self.toolbar.addAction(self.action_run_workflow)
-        self.toolbar.addAction(self.action_stop_workflow)
-        # self.toolbar.addAction(self.action_view_components) # 删除原有组件说明按钮相关代码
+        # self.toolbar.addAction(self.action_stop_workflow) # 删除原有组件说明按钮相关代码
     
     def init_menu(self):
         """初始化菜单"""
@@ -151,7 +145,6 @@ class MainWindow(QMainWindow):
         
         # 运行工作流
         tools_menu.addAction(self.action_run_workflow)
-        tools_menu.addAction(self.action_stop_workflow)
         tools_menu.addSeparator()
         
         # 设置
@@ -301,104 +294,6 @@ class MainWindow(QMainWindow):
         # 启动任务
         task_widget.start_task()
     
-    def on_stop_workflow(self):
-        """停止工作流"""
-        current_tab = self.tabs.currentWidget()
-        
-        from .task_execution import TaskExecutionWidget
-        if isinstance(current_tab, TaskExecutionWidget):
-            # 检查当前选项卡是否有正在运行的任务
-            if current_tab.is_running():
-                current_tab.stop_task()
-            else:
-                QMessageBox.information(self, self.tr("提示"), self.tr("当前任务没有在运行。"))
-        else:
-            # 检查是否有其他正在运行的任务
-            running_tasks = self.get_running_task_widgets()
-            if running_tasks:
-                # 如果有多个运行中的任务，让用户选择
-                if len(running_tasks) == 1:
-                    running_tasks[0].stop_task()
-                else:
-                    self.show_task_selection_dialog(running_tasks)
-            else:
-                QMessageBox.information(self, self.tr("提示"), self.tr("没有正在运行的任务。"))
-    
-    def get_running_task_widgets(self):
-        """获取所有正在运行的任务执行部件"""
-        from .task_execution import TaskExecutionWidget
-        running_tasks = []
-        
-        for i in range(self.tabs.count()):
-            widget = self.tabs.widget(i)
-            if isinstance(widget, TaskExecutionWidget) and widget.is_running():
-                running_tasks.append(widget)
-        
-        return running_tasks
-    
-    def show_task_selection_dialog(self, running_tasks):
-        """显示任务选择对话框"""
-        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QListWidget, QListWidgetItem
-        
-        dialog = QDialog(self)
-        dialog.setWindowTitle(self.tr("选择要停止的任务"))
-        dialog.setMinimumSize(400, 300)
-        
-        layout = QVBoxLayout(dialog)
-        
-        # 说明标签
-        label = QLabel(self.tr("检测到多个正在运行的任务，请选择要停止的任务："))
-        layout.addWidget(label)
-        
-        # 任务列表
-        task_list = QListWidget()
-        for task in running_tasks:
-            item = QListWidgetItem(f"任务: {task.workflow.name} - {task.source_type}")
-            item.setData(Qt.UserRole, task)
-            task_list.addItem(item)
-        
-        layout.addWidget(task_list)
-        
-        # 按钮
-        button_layout = QHBoxLayout()
-        
-        stop_selected_btn = QPushButton(self.tr("停止选中任务"))
-        stop_selected_btn.clicked.connect(lambda: self.stop_selected_task(task_list, dialog))
-        button_layout.addWidget(stop_selected_btn)
-        
-        stop_all_btn = QPushButton(self.tr("停止所有任务"))
-        stop_all_btn.clicked.connect(lambda: self.stop_all_tasks(running_tasks, dialog))
-        button_layout.addWidget(stop_all_btn)
-        
-        cancel_btn = QPushButton(self.tr("取消"))
-        cancel_btn.clicked.connect(dialog.reject)
-        button_layout.addWidget(cancel_btn)
-        
-        layout.addLayout(button_layout)
-        
-        dialog.exec_()
-    
-    def stop_selected_task(self, task_list, dialog):
-        """停止选中的任务"""
-        current_item = task_list.currentItem()
-        if current_item:
-            task = current_item.data(Qt.UserRole)
-            task.stop_task()
-            dialog.accept()
-    
-    def stop_all_tasks(self, running_tasks, dialog):
-        """停止所有任务"""
-        reply = QMessageBox.question(
-            self, self.tr("确认停止"), 
-            self.tr(f"确定要停止所有 {len(running_tasks)} 个正在运行的任务吗？"),
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
-        )
-        
-        if reply == QMessageBox.Yes:
-            for task in running_tasks:
-                task.stop_task()
-            dialog.accept()
-    
     def update_stop_button_state(self):
         """更新停止按钮状态"""
         from .task_execution import TaskExecutionWidget
@@ -409,7 +304,7 @@ class MainWindow(QMainWindow):
                 if widget.is_running():
                     running = True
                     break
-        self.action_stop_workflow.setEnabled(running)
+        # self.action_stop_workflow.setEnabled(running) # 删除原有组件说明按钮相关代码
     
     def on_task_started(self):
         """任务开始时的处理"""
@@ -491,7 +386,7 @@ class MainWindow(QMainWindow):
         self.action_delete_workflow.setText(self.tr("删除工作流"))
         self.action_open_workflow.setText(self.tr("打开工作流"))
         self.action_run_workflow.setText(self.tr("运行工作流"))
-        self.action_stop_workflow.setText(self.tr("停止工作流"))
+        # self.action_stop_workflow.setText(self.tr("停止工作流")) # 删除原有组件说明按钮相关代码
         self.action_action_help.setText(self.tr("动作说明"))
         self.workflow_toolbar.setWindowTitle(self.tr("工作流操作"))
         # 刷新工具栏（只clear和addAction，不新建QToolBar）

@@ -40,7 +40,7 @@ class TaskExecutionWidget(QWidget):
         # 连接信号到槽
         self.progress_signal.connect(self.on_progress_update)
         self.log_signal.connect(self.add_log)
-        self.result_signal.connect(self.update_result_tree)
+        # self.result_signal.connect(self.update_result_tree) # 移除执行结果信号连接
 
     def is_running(self) -> bool:
         """检查任务是否正在运行"""
@@ -110,17 +110,17 @@ class TaskExecutionWidget(QWidget):
         layout.addWidget(log_group)
 
         # 结果部分
-        result_group = QGroupBox(self.tr("执行结果"))
-        result_layout = QVBoxLayout(result_group)
+        # result_group = QGroupBox(self.tr("执行结果"))
+        # result_layout = QVBoxLayout(result_group)
 
-        self.result_tree = QTreeWidget()
-        self.result_tree.setHeaderLabels([self.tr("步骤"), self.tr("状态"), self.tr("详情")])
-        self.result_tree.setColumnWidth(0, 200)
-        self.result_tree.setColumnWidth(1, 100)
-        result_layout.addWidget(self.result_tree)
+        # self.result_tree = QTreeWidget()
+        # self.result_tree.setHeaderLabels([self.tr("步骤"), self.tr("状态"), self.tr("详情")])
+        # self.result_tree.setColumnWidth(0, 200)
+        # self.result_tree.setColumnWidth(1, 100)
+        # result_layout.addWidget(self.result_tree)
 
         # 添加到主布局
-        layout.addWidget(result_group)
+        # layout.addWidget(result_group)
 
         # 控制按钮
         buttons_layout = QHBoxLayout()
@@ -159,12 +159,13 @@ class TaskExecutionWidget(QWidget):
         group_boxes = self.findChildren(QGroupBox)
         if len(group_boxes) > 1:
             group_boxes[1].setTitle(self.tr("执行日志"))
-        if len(group_boxes) > 2:
-            group_boxes[2].setTitle(self.tr("执行结果"))
+        # 移除执行结果栏相关
+        # if len(group_boxes) > 2:
+        #     group_boxes[2].setTitle(self.tr("执行结果"))
         # 结果树表头
-        self.result_tree.setHeaderLabels([
-            self.tr("步骤"), self.tr("状态"), self.tr("详情")
-        ])
+        # self.result_tree.setHeaderLabels([
+        #     self.tr("步骤"), self.tr("状态"), self.tr("详情")
+        # ])
         # 按钮
         self.start_button.setText(self.tr("开始执行"))
         self.stop_button.setText(self.tr("停止执行"))
@@ -179,11 +180,11 @@ class TaskExecutionWidget(QWidget):
         self.progress_bar.setValue(0)
         self.status_label.setText(self.tr("正在启动..."))
         self.log_text.clear()
-        self.result_tree.clear()
+        # self.result_tree.clear() # 移除结果树清空
 
         # 更新按钮状态
         self.start_button.setEnabled(False)
-        self.stop_button.setEnabled(False)  # 等待任务真正开始
+        # self.stop_button.setEnabled(False) # 移除停止按钮状态更新
 
         # 添加首条日志
         self.log_signal.emit(self.tr("开始执行任务..."))
@@ -227,12 +228,10 @@ class TaskExecutionWidget(QWidget):
             main_window.update_stop_button_state()
 
     def stop_task(self):
-        # 直接根据execution_record.status判断
         if not self.can_stop():
             QMessageBox.information(self, self.tr("提示"), self.tr("当前任务没有在运行。"))
             return
 
-        # 确认停止
         reply = QMessageBox.question(
             self, self.tr("确认停止"), self.tr("确定要停止当前任务吗？"),
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No
@@ -242,7 +241,6 @@ class TaskExecutionWidget(QWidget):
             return
 
         try:
-            # 尝试取消任务
             if workflow_engine.cancel_task(self.execution_record.id):
                 self.log_signal.emit(self.tr("正在取消任务..."))
                 self.status_label.setText(self.tr("正在取消..."))
@@ -308,45 +306,46 @@ class TaskExecutionWidget(QWidget):
             self.log_text.verticalScrollBar().maximum()
         )
 
-    @pyqtSlot(dict)
-    def update_result_tree(self, step_log: dict):
-        """
-        更新结果树显示，主线程更新UI
+    # 移除result_tree相关方法和信号
+    # @pyqtSlot(dict)
+    # def update_result_tree(self, step_log: dict):
+    #     """
+    #     更新结果树显示，主线程更新UI
+    #
+    #     Args:
+    #         step_log: 步骤日志字典
+    #     """
+    #     step_id = step_log.get("step_id")
+    #     step_name = step_log.get("step_name")
+    #     status = step_log.get("status")
+    #     message = step_log.get("message", "")
 
-        Args:
-            step_log: 步骤日志字典
-        """
-        step_id = step_log.get("step_id")
-        step_name = step_log.get("step_name")
-        status = step_log.get("status")
-        message = step_log.get("message", "")
+    #     # 创建或获取步骤项
+    #     found = False
+    #     for i in range(self.result_tree.topLevelItemCount()):
+    #         item = self.result_tree.topLevelItem(i)
+    #         if item.text(0) == step_name:
+    #             # 更新已有项
+    #             item.setText(1, status)
+    #             item.setText(2, message)
+    #             step_item = item
+    #             found = True
+    #             break
 
-        # 创建或获取步骤项
-        found = False
-        for i in range(self.result_tree.topLevelItemCount()):
-            item = self.result_tree.topLevelItem(i)
-            if item.text(0) == step_name:
-                # 更新已有项
-                item.setText(1, status)
-                item.setText(2, message)
-                step_item = item
-                found = True
-                break
+    #     if not found:
+    #         # 创建新项
+    #         step_item = QTreeWidgetItem([step_name, status, message])
+    #         self.result_tree.addTopLevelItem(step_item)
 
-        if not found:
-            # 创建新项
-            step_item = QTreeWidgetItem([step_name, status, message])
-            self.result_tree.addTopLevelItem(step_item)
+    #     # 添加详情子项
+    #     details = step_log.get("details", {})
+    #     if details:
+    #         for key, value in details.items():
+    #             detail_item = QTreeWidgetItem([key, "", str(value)])
+    #             step_item.addChild(detail_item)
 
-        # 添加详情子项
-        details = step_log.get("details", {})
-        if details:
-            for key, value in details.items():
-                detail_item = QTreeWidgetItem([key, "", str(value)])
-                step_item.addChild(detail_item)
-
-        # 展开所有项
-        self.result_tree.expandAll()
+    #     # 展开所有项
+    #     self.result_tree.expandAll()
 
     def check_task_status(self):
         """检查任务状态并更新UI"""
@@ -366,7 +365,7 @@ class TaskExecutionWidget(QWidget):
                 # 任务已完成或失败
                 self.update_timer.stop()
                 self.start_button.setEnabled(True)
-                self.stop_button.setEnabled(False)
+                # self.stop_button.setEnabled(False) # 移除停止按钮状态更新
                 
                 # 根据状态更新UI
                 if record.status == "completed":
@@ -407,38 +406,28 @@ class TaskExecutionWidget(QWidget):
             self.start_button.setEnabled(False)
             self.stop_button.setEnabled(True)
         elif record.status in ["completed", "failed", "cancelled"]:
-            # 任务完成
             self.update_timer.stop()
             self.start_button.setEnabled(True)
             self.stop_button.setEnabled(False)
-
-            # 更新进度和状态
             if record.status == "completed":
                 self.progress_bar.setValue(100)
                 self.status_label.setText(self.tr(f"已完成 (成功: {record.success_images}, 失败: {record.failed_images})"))
                 self.log_signal.emit(self.tr(f"任务完成. 总图像: {record.total_images}, 成功: {record.success_images}, 失败: {record.failed_images}"))
-
-                # 发送任务完成信号
                 self.task_finished.emit(True, self.tr(f"成功处理 {record.success_images} 个图像, 失败 {record.failed_images} 个"))
             elif record.status == "failed":
-                # 检查是否是取消导致的失败
                 if record.error_message and ("cancelled" in record.error_message.lower() or "取消" in record.error_message):
                     self.status_label.setText(self.tr("已取消"))
                     self.log_signal.emit(self.tr("任务已取消"))
-                    # 发送任务完成信号
                     self.task_finished.emit(False, self.tr("任务已取消"))
                 else:
                     self.status_label.setText(self.tr(f"出错: {record.error_message}"))
                     self.log_signal.emit(self.tr(f"任务失败: {record.error_message}"))
-                    # 发送任务完成信号
                     self.task_finished.emit(False, record.error_message or self.tr("任务执行失败"))
             else:
                 self.status_label.setText(self.tr(f"状态: {record.status}"))
                 self.log_signal.emit(self.tr(f"任务状态: {record.status}"))
-                # 发送任务完成信号
                 self.task_finished.emit(False, self.tr(f"任务状态: {record.status}"))
         elif record.status == "queued":
-            # 任务在队列中，等待执行
             self.start_button.setEnabled(False)
             self.stop_button.setEnabled(False)
             self.status_label.setText(self.tr("等待执行..."))
