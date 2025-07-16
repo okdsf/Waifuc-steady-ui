@@ -50,20 +50,20 @@ class TaskExecutionWidget(QWidget):
         # 任务信息
         info_layout = QHBoxLayout()
 
-        self.workflow_label = QLabel(f"工作流: {self.workflow.name}")
+        self.workflow_label = QLabel(self.tr("工作流: ") + self.workflow.name)
         info_layout.addWidget(self.workflow_label)
 
-        self.source_label = QLabel(f"源: {self.source_type}")
+        self.source_label = QLabel(self.tr("源: ") + self.source_type)
         info_layout.addWidget(self.source_label)
 
-        self.output_label = QLabel(f"输出: {self.output_directory}")
+        self.output_label = QLabel(self.tr("输出: ") + self.output_directory)
         info_layout.addWidget(self.output_label)
 
         # 添加到主布局
         layout.addLayout(info_layout)
 
         # 进度部分
-        progress_group = QGroupBox("执行进度")
+        progress_group = QGroupBox(self.tr("执行进度"))
         progress_layout = QVBoxLayout(progress_group)
 
         # 进度条
@@ -73,14 +73,14 @@ class TaskExecutionWidget(QWidget):
         progress_layout.addWidget(self.progress_bar)
 
         # 状态标签
-        self.status_label = QLabel("准备执行...")
+        self.status_label = QLabel(self.tr("准备执行..."))
         progress_layout.addWidget(self.status_label)
 
         # 添加到主布局
         layout.addWidget(progress_group)
 
         # 日志输出
-        log_group = QGroupBox("执行日志")
+        log_group = QGroupBox(self.tr("执行日志"))
         log_layout = QVBoxLayout(log_group)
 
         self.log_text = QTextEdit()
@@ -91,11 +91,11 @@ class TaskExecutionWidget(QWidget):
         layout.addWidget(log_group)
 
         # 结果部分
-        result_group = QGroupBox("执行结果")
+        result_group = QGroupBox(self.tr("执行结果"))
         result_layout = QVBoxLayout(result_group)
 
         self.result_tree = QTreeWidget()
-        self.result_tree.setHeaderLabels(["步骤", "状态", "详情"])
+        self.result_tree.setHeaderLabels([self.tr("步骤"), self.tr("状态"), self.tr("详情")])
         self.result_tree.setColumnWidth(0, 200)
         self.result_tree.setColumnWidth(1, 100)
         result_layout.addWidget(self.result_tree)
@@ -106,16 +106,16 @@ class TaskExecutionWidget(QWidget):
         # 控制按钮
         buttons_layout = QHBoxLayout()
 
-        self.start_button = QPushButton("开始执行")
+        self.start_button = QPushButton(self.tr("开始执行"))
         self.start_button.clicked.connect(self.start_task)
         buttons_layout.addWidget(self.start_button)
 
-        self.stop_button = QPushButton("停止执行")
+        self.stop_button = QPushButton(self.tr("停止执行"))
         self.stop_button.clicked.connect(self.stop_task)
         self.stop_button.setEnabled(False)
         buttons_layout.addWidget(self.stop_button)
 
-        self.open_output_button = QPushButton("打开输出目录")
+        self.open_output_button = QPushButton(self.tr("打开输出目录"))
         self.open_output_button.clicked.connect(self.open_output_directory)
         buttons_layout.addWidget(self.open_output_button)
 
@@ -127,6 +127,30 @@ class TaskExecutionWidget(QWidget):
         self.update_timer.timeout.connect(self.update_progress)
         self.update_timer.setInterval(1000)  # 1秒更新一次
 
+    def retranslateUi(self):
+        self.workflow_label.setText(self.tr("工作流: ") + self.workflow.name)
+        self.source_label.setText(self.tr("源: ") + self.source_type)
+        self.output_label.setText(self.tr("输出: ") + self.output_directory)
+        # 分组框
+        self.findChild(QGroupBox, None).setTitle(self.tr("执行进度")) if self.findChild(QGroupBox, None) else None
+        # 进度条状态
+        self.status_label.setText(self.tr("准备执行..."))
+        # 日志分组
+        # 由于QGroupBox没有objectName，需按顺序设置
+        group_boxes = self.findChildren(QGroupBox)
+        if len(group_boxes) > 1:
+            group_boxes[1].setTitle(self.tr("执行日志"))
+        if len(group_boxes) > 2:
+            group_boxes[2].setTitle(self.tr("执行结果"))
+        # 结果树表头
+        self.result_tree.setHeaderLabels([
+            self.tr("步骤"), self.tr("状态"), self.tr("详情")
+        ])
+        # 按钮
+        self.start_button.setText(self.tr("开始执行"))
+        self.stop_button.setText(self.tr("停止执行"))
+        self.open_output_button.setText(self.tr("打开输出目录"))
+
     def start_task(self):
         """开始执行任务"""
         if self.is_running:
@@ -134,7 +158,7 @@ class TaskExecutionWidget(QWidget):
 
         # 重置UI
         self.progress_bar.setValue(0)
-        self.status_label.setText("正在启动...")
+        self.status_label.setText(self.tr("正在启动..."))
         self.log_text.clear()
         self.result_tree.clear()
 
@@ -143,10 +167,10 @@ class TaskExecutionWidget(QWidget):
         self.stop_button.setEnabled(True)
 
         # 添加首条日志
-        self.log_signal.emit("开始执行任务...")
-        self.log_signal.emit(f"工作流: {self.workflow.name}")
-        self.log_signal.emit(f"源类型: {self.source_type}")
-        self.log_signal.emit(f"输出目录: {self.output_directory}")
+        self.log_signal.emit(self.tr("开始执行任务..."))
+        self.log_signal.emit(self.tr("工作流: ") + self.workflow.name)
+        self.log_signal.emit(self.tr("源类型: ") + self.source_type)
+        self.log_signal.emit(self.tr("输出目录: ") + self.output_directory)
 
         # 启动任务
         self.execution_record = workflow_engine.execute_workflow(
@@ -172,7 +196,7 @@ class TaskExecutionWidget(QWidget):
 
         # 确认停止
         reply = QMessageBox.question(
-            self, "确认停止", "确定要停止当前任务吗？",
+            self, self.tr("确认停止"), self.tr("确定要停止当前任务吗？"),
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         )
 
@@ -181,8 +205,8 @@ class TaskExecutionWidget(QWidget):
 
         # 尝试取消任务
         if workflow_engine.cancel_task(self.execution_record.id):
-            self.log_signal.emit("任务已取消")
-            self.status_label.setText("已取消")
+            self.log_signal.emit(self.tr("任务已取消"))
+            self.status_label.setText(self.tr("已取消"))
 
             # 更新任务状态
             self.is_running = False
@@ -195,10 +219,10 @@ class TaskExecutionWidget(QWidget):
             self.stop_button.setEnabled(False)
 
             # 发送任务完成信号
-            self.task_finished.emit(False, "任务已取消")
+            self.task_finished.emit(False, self.tr("任务已取消"))
         else:
-            self.log_signal.emit("无法取消任务")
-            QMessageBox.warning(self, "错误", "无法取消任务，任务可能已完成或出错。")
+            self.log_signal.emit(self.tr("无法取消任务"))
+            QMessageBox.warning(self, self.tr("错误"), self.tr("无法取消任务，任务可能已完成或出错。"))
 
     def on_progress_callback(self, status: str, progress: float, message: str):
         """
@@ -226,10 +250,10 @@ class TaskExecutionWidget(QWidget):
         self.progress_bar.setValue(progress_value)
 
         # 更新状态标签
-        self.status_label.setText(f"{status}: {message}")
+        self.status_label.setText(self.tr(f"{status}: {message}"))
 
         # 添加日志
-        self.log_signal.emit(f"[{status}] {message}")
+        self.log_signal.emit(self.tr(f"[{status}] {message}"))
 
     @pyqtSlot(str)
     def add_log(self, message: str):
@@ -314,17 +338,28 @@ class TaskExecutionWidget(QWidget):
             # 更新进度和状态
             if record.status == "completed":
                 self.progress_bar.setValue(100)
-                self.status_label.setText(f"已完成 (成功: {record.success_images}, 失败: {record.failed_images})")
-                self.log_signal.emit(f"任务完成. 总图像: {record.total_images}, 成功: {record.success_images}, 失败: {record.failed_images}")
+                self.status_label.setText(self.tr(f"已完成 (成功: {record.success_images}, 失败: {record.failed_images})"))
+                self.log_signal.emit(self.tr(f"任务完成. 总图像: {record.total_images}, 成功: {record.success_images}, 失败: {record.failed_images}"))
 
                 # 发送任务完成信号
-                self.task_finished.emit(True, f"成功处理 {record.success_images} 个图像, 失败 {record.failed_images} 个")
+                self.task_finished.emit(True, self.tr(f"成功处理 {record.success_images} 个图像, 失败 {record.failed_images} 个"))
+            elif record.status == "failed":
+                # 检查是否是取消导致的失败
+                if record.error_message and ("cancelled" in record.error_message.lower() or "取消" in record.error_message):
+                    self.status_label.setText(self.tr("已取消"))
+                    self.log_signal.emit(self.tr("任务已取消"))
+                    # 发送任务完成信号
+                    self.task_finished.emit(False, self.tr("任务已取消"))
+                else:
+                    self.status_label.setText(self.tr(f"出错: {record.error_message}"))
+                    self.log_signal.emit(self.tr(f"任务失败: {record.error_message}"))
+                    # 发送任务完成信号
+                    self.task_finished.emit(False, record.error_message or self.tr("任务执行失败"))
             else:
-                self.status_label.setText(f"出错: {record.error_message}")
-                self.log_signal.emit(f"任务失败: {record.error_message}")
-
+                self.status_label.setText(self.tr(f"状态: {record.status}"))
+                self.log_signal.emit(self.tr(f"任务状态: {record.status}"))
                 # 发送任务完成信号
-                self.task_finished.emit(False, record.error_message or "任务执行失败")
+                self.task_finished.emit(False, self.tr(f"任务状态: {record.status}"))
 
     def open_output_directory(self):
         """打开输出目录"""
@@ -340,5 +375,5 @@ class TaskExecutionWidget(QWidget):
                 subprocess.Popen(["xdg-open", self.output_directory])
         except Exception as e:
             QMessageBox.warning(
-                self, "错误", f"无法打开输出目录: {str(e)}"
+                self, self.tr("错误"), self.tr(f"无法打开输出目录: {str(e)}")
             )

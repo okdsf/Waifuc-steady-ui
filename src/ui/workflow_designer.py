@@ -30,7 +30,7 @@ class StepConfigDialog(QDialog):
         self.init_ui()
 
     def init_ui(self):
-        self.setWindowTitle(f"配置 {self.action_name}")
+        self.setWindowTitle(self.tr(f"配置 {self.action_name}"))
         self.setMinimumSize(400, 300)
         layout = QVBoxLayout(self)
 
@@ -62,7 +62,7 @@ class StepConfigDialog(QDialog):
 
             current_value_to_display = params_to_display.get(param_name)
 
-            label = QLabel(f"{param_name}:")
+            label = QLabel(self.tr(f"{param_name}:"))
 
  
 
@@ -71,7 +71,7 @@ class StepConfigDialog(QDialog):
                 if current_value_to_display is not None: 
                     widget.setText(str(current_value_to_display))
                 else: # 否则，如果是必填项，显示占位符
-                    widget.setPlaceholderText(f"请输入 {param_name}（必填）")
+                    widget.setPlaceholderText(self.tr(f"请输入 {param_name}（必填）"))
             
             elif isinstance(default_config_value, bool):
                 widget = QCheckBox()
@@ -96,7 +96,7 @@ class StepConfigDialog(QDialog):
                 # 显示 current_value_to_display 的字符串形式
                 widget.setText(str(current_value_to_display))
                 widget.setReadOnly(True)
-                edit_button = QPushButton("编辑...")
+                edit_button = QPushButton(self.tr("编辑..."))
                 # edit_dict_param 方法会从 widget 读取文本，所以 setText(str(current_value_to_display)) 很重要
                 edit_button.clicked.connect(lambda checked, name=param_name: self.edit_dict_param(name))
                 
@@ -110,7 +110,7 @@ class StepConfigDialog(QDialog):
                 # 显示 current_value_to_display 的字符串形式
                 widget.setText(str(current_value_to_display))
                 widget.setReadOnly(True)
-                edit_button = QPushButton("编辑...")
+                edit_button = QPushButton(self.tr("编辑..."))
                 # edit_list_param 方法会从 widget 读取文本
                 edit_button.clicked.connect(lambda checked, name=param_name: self.edit_list_param(name))
 
@@ -132,13 +132,13 @@ class StepConfigDialog(QDialog):
         widget = self.param_widgets[param_name][0]
         current_value = eval(widget.text())
         text = json.dumps(current_value, indent=2)
-        new_text, ok = QInputDialog.getMultiLineText(self, f"编辑 {param_name}", "输入 JSON 格式数据:", text)
+        new_text, ok = QInputDialog.getMultiLineText(self, self.tr(f"编辑 {param_name}"), self.tr("输入 JSON 格式数据:"), text)
         if ok:
             try:
                 new_value = json.loads(new_text)
                 widget.setText(str(new_value))
             except json.JSONDecodeError:
-                QMessageBox.warning(self, "格式错误", "输入的 JSON 格式不正确。")
+                QMessageBox.warning(self, self.tr("格式错误"), self.tr("输入的 JSON 格式不正确。"))
 
     def edit_list_param(self, param_name):
         """编辑列表参数"""
@@ -151,13 +151,13 @@ class StepConfigDialog(QDialog):
         except:
             current_value = []
         text = json.dumps(current_value)
-        new_text, ok = QInputDialog.getMultiLineText(self, f"编辑 {param_name}", "输入 JSON 格式数据:", text)
+        new_text, ok = QInputDialog.getMultiLineText(self, self.tr(f"编辑 {param_name}"), self.tr("输入 JSON 格式数据:"), text)
         if ok:
             try:
                 new_value = json.loads(new_text)
                 widget.setText(str(new_value))
             except json.JSONDecodeError:
-                QMessageBox.warning(self, "格式错误", "输入的 JSON 格式不正确。")
+                QMessageBox.warning(self, self.tr("格式错误"), self.tr("输入的 JSON 格式不正确。"))
 
     def get_params(self) -> Dict[str, Any]:
         """获取用户输入的参数"""
@@ -189,11 +189,11 @@ class StepConfigDialog(QDialog):
             elif isinstance(widget, QLineEdit):
                 text = widget.text()
                 # 如果参数为空但在已知可选参数列表中，则跳过验证
-                if not text and widget.placeholderText().startswith("请输入"):
+                if not text and widget.placeholderText().startswith(self.tr("请输入")):
                     if param_name in known_optional_params:
                         continue  # 跳过这个参数，不添加到结果中
                     else:
-                        raise ValueError(f"参数 {param_name} 为必填项")
+                        raise ValueError(self.tr(f"参数 {param_name} 为必填项"))
                 try:
                     if text and '.' in text:
                         result[param_name] = float(text)
@@ -207,6 +207,26 @@ class StepConfigDialog(QDialog):
                 result[param_name] = None
         return result
 
+    def retranslateUi(self):
+        self.setWindowTitle(self.tr(f"配置 {self.action_name}"))
+        # 刷新表单标签和按钮
+        for i in range(self.form_layout.rowCount()):
+            label_item = self.form_layout.itemAt(i, QFormLayout.LabelRole)
+            if label_item and isinstance(label_item.widget(), QLabel):
+                label = label_item.widget()
+                text = label.text()
+                if text.endswith(":"):
+                    param_name = text[:-1]
+                    label.setText(self.tr(f"{param_name}:"))
+        # 刷新所有编辑按钮
+        for widget in self.findChildren(QPushButton):
+            if widget.text() == "编辑...":
+                widget.setText(self.tr("编辑..."))
+        # 刷新 QDialogButtonBox
+        for widget in self.findChildren(QDialogButtonBox):
+            widget.button(QDialogButtonBox.Ok).setText(self.tr("确定"))
+            widget.button(QDialogButtonBox.Cancel).setText(self.tr("取消"))
+
 
 class WorkflowNameDialog(QDialog):
     """
@@ -215,7 +235,7 @@ class WorkflowNameDialog(QDialog):
     def __init__(self, name: str = "", description: str = "", parent=None):
         super().__init__(parent)
         
-        self.setWindowTitle("工作流信息")
+        self.setWindowTitle(self.tr("工作流信息"))
         self.setMinimumSize(400, 250)
         
         # 创建布局
@@ -225,12 +245,12 @@ class WorkflowNameDialog(QDialog):
         form_layout = QFormLayout()
         
         self.name_edit = QLineEdit(name)
-        form_layout.addRow("名称:", self.name_edit)
+        form_layout.addRow(self.tr("名称:"), self.name_edit)
         
         self.description_edit = QTextEdit()
         self.description_edit.setText(description)
-        self.description_edit.setPlaceholderText("输入工作流描述...")
-        form_layout.addRow("描述:", self.description_edit)
+        self.description_edit.setPlaceholderText(self.tr("输入工作流描述..."))
+        form_layout.addRow(self.tr("描述:"), self.description_edit)
         
         layout.addLayout(form_layout)
         
@@ -247,6 +267,28 @@ class WorkflowNameDialog(QDialog):
     def get_description(self) -> str:
         """获取描述"""
         return self.description_edit.toPlainText().strip()
+
+    def retranslateUi(self):
+        self.setWindowTitle(self.tr("工作流信息"))
+        # 刷新表单标签
+        for i in range(self.layout().count()):
+            item = self.layout().itemAt(i)
+            if isinstance(item, QFormLayout):
+                for j in range(item.rowCount()):
+                    label_item = item.itemAt(j, QFormLayout.LabelRole)
+                    if label_item and isinstance(label_item.widget(), QLabel):
+                        label = label_item.widget()
+                        if label.text().startswith("名称"):
+                            label.setText(self.tr("名称:"))
+                        elif label.text().startswith("描述"):
+                            label.setText(self.tr("描述:"))
+        # 刷新描述输入框占位符
+        if hasattr(self, 'description_edit'):
+            self.description_edit.setPlaceholderText(self.tr("输入工作流描述..."))
+        # 刷新 QDialogButtonBox
+        for widget in self.findChildren(QDialogButtonBox):
+            widget.button(QDialogButtonBox.Ok).setText(self.tr("确定"))
+            widget.button(QDialogButtonBox.Cancel).setText(self.tr("取消"))
 
 
 class ActionsListWidget(QListWidget):
@@ -313,6 +355,10 @@ class ActionsListWidget(QListWidget):
         # 开始拖动
         drag.exec_(Qt.CopyAction)
 
+    def retranslateUi(self):
+        # 重新加载所有操作类别和操作（类别名会被翻译）
+        self.load_actions()
+
 
 class WorkflowStepsWidget(QTreeWidget):
     """
@@ -324,7 +370,7 @@ class WorkflowStepsWidget(QTreeWidget):
         super().__init__(parent)
         
         # 设置列
-        self.setHeaderLabels(["步骤", "参数"])
+        self.setHeaderLabels([self.tr("步骤"), self.tr("参数")])
         self.setColumnWidth(0, 200)
         self.setAcceptDrops(True)
         self.setDragDropMode(QTreeWidget.InternalMove)
@@ -498,11 +544,11 @@ class WorkflowStepsWidget(QTreeWidget):
         menu = QMenu(self)
         
         # 编辑操作
-        edit_action = menu.addAction("编辑...")
+        edit_action = menu.addAction(self.tr("编辑..."))
         edit_action.triggered.connect(lambda: self.on_item_double_clicked(item, 0))
         
         # 删除操作
-        delete_action = menu.addAction("删除")
+        delete_action = menu.addAction(self.tr("删除"))
         delete_action.triggered.connect(lambda: self.delete_step(item))
         
         # 显示菜单
@@ -517,7 +563,7 @@ class WorkflowStepsWidget(QTreeWidget):
         
         # 确认删除
         reply = QMessageBox.question(
-            self, "确认删除", "确定要删除此步骤吗？",
+            self, self.tr("确认删除"), self.tr("确定要删除此步骤吗？"),
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         )
         
@@ -533,6 +579,11 @@ class WorkflowStepsWidget(QTreeWidget):
         # 从控件中移除
         index = self.indexOfTopLevelItem(item)
         self.takeTopLevelItem(index)
+
+    def retranslateUi(self):
+        self.setHeaderLabels([self.tr("步骤"), self.tr("参数")])
+        # 递归刷新所有子项（如有需要）
+        # 可根据实际需求递归刷新子项内容
 
 
 class WorkflowDesignerWidget(QWidget):
@@ -553,39 +604,33 @@ class WorkflowDesignerWidget(QWidget):
         main_layout = QVBoxLayout(self)
         
         # 工具栏
-        toolbar = QToolBar()
-        main_layout.addWidget(toolbar)
+        self.toolbar = QToolBar()
+        main_layout.addWidget(self.toolbar)
         
-        # 新建工作流
-        new_action = toolbar.addAction("新建")
-        new_action.triggered.connect(self.create_new_workflow)
-        
-        # 编辑信息
-        edit_info_action = toolbar.addAction("编辑信息")
-        edit_info_action.triggered.connect(self.edit_workflow_info)
-        
-        toolbar.addSeparator()
-        
+        # 删除新建工作流按钮，只保留编辑信息按钮
+        self.edit_info_action = self.toolbar.addAction(self.tr("编辑信息"))
+        self.edit_info_action.triggered.connect(self.edit_workflow_info)
+        self.toolbar.addSeparator()
         # 工作流信息
-        self.info_label = QLabel("未打开工作流")
-        toolbar.addWidget(self.info_label)
+        self.info_label = QLabel(self.tr("未打开工作流"))
+        self.toolbar.addWidget(self.info_label)
         
         # 创建分割器
         splitter = QSplitter(Qt.Horizontal)
         main_layout.addWidget(splitter)
         
         # 左侧 - 操作列表
-        actions_group = QGroupBox("可用操作")
-        actions_layout = QVBoxLayout(actions_group)
+        self.actions_group = QGroupBox(self.tr("可用操作"))
+        actions_layout = QVBoxLayout(self.actions_group)
         
         self.actions_list = ActionsListWidget()
         actions_layout.addWidget(self.actions_list)
         
-        splitter.addWidget(actions_group)
+        splitter.addWidget(self.actions_group)
         
         # 右侧 - 工作流步骤
-        steps_group = QGroupBox("工作流步骤")
-        steps_layout = QVBoxLayout(steps_group)
+        self.steps_group = QGroupBox(self.tr("工作流步骤"))
+        steps_layout = QVBoxLayout(self.steps_group)
         
         self.steps_tree = WorkflowStepsWidget()
         steps_layout.addWidget(self.steps_tree)
@@ -593,17 +638,17 @@ class WorkflowDesignerWidget(QWidget):
         # 添加控制按钮
         buttons_layout = QHBoxLayout()
         
-        self.add_step_button = QPushButton("添加步骤")
+        self.add_step_button = QPushButton(self.tr("添加步骤"))
         self.add_step_button.clicked.connect(self.add_step)
         buttons_layout.addWidget(self.add_step_button)
         
-        self.remove_step_button = QPushButton("删除步骤")
+        self.remove_step_button = QPushButton(self.tr("删除步骤"))
         self.remove_step_button.clicked.connect(self.remove_step)
         buttons_layout.addWidget(self.remove_step_button)
         
         steps_layout.addLayout(buttons_layout)
         
-        splitter.addWidget(steps_group)
+        splitter.addWidget(self.steps_group)
         
         # 设置分割器初始大小
         splitter.setSizes([200, 400])
@@ -620,7 +665,7 @@ class WorkflowDesignerWidget(QWidget):
         
         name = dialog.get_name()
         if not name:
-            QMessageBox.warning(self, "错误", "工作流名称不能为空。")
+            QMessageBox.warning(self, self.tr("错误"), self.tr("工作流名称不能为空。"))
             return
         
         description = dialog.get_description()
@@ -637,7 +682,7 @@ class WorkflowDesignerWidget(QWidget):
         # 获取所有工作流
         all_workflows = workflow_manager.get_all_workflows()
         if not all_workflows:
-            QMessageBox.information(self, "提示", "没有保存的工作流。")
+            QMessageBox.information(self, self.tr("提示"), self.tr("没有保存的工作流。"))
             return
         
         # 创建项目列表
@@ -647,7 +692,7 @@ class WorkflowDesignerWidget(QWidget):
         
         # 弹出选择对话框
         item, ok = QInputDialog.getItem(
-            self, "打开工作流", "选择要打开的工作流:",
+            self, self.tr("打开工作流"), self.tr("选择要打开的工作流:"),
             items, 0, False
         )
         
@@ -664,7 +709,7 @@ class WorkflowDesignerWidget(QWidget):
         """加载工作流"""
         workflow = workflow_manager.get_workflow(workflow_id)
         if workflow is None:
-            QMessageBox.warning(self, "错误", f"未找到工作流 {workflow_id}。")
+            QMessageBox.warning(self, self.tr("错误"), self.tr(f"未找到工作流 {workflow_id}。"))
             return
         
         # 设置当前工作流
@@ -677,29 +722,29 @@ class WorkflowDesignerWidget(QWidget):
     def save_workflow(self):
         """保存当前工作流"""
         if self.current_workflow is None:
-            QMessageBox.warning(self, "错误", "没有可保存的工作流。")
+            QMessageBox.warning(self, self.tr("错误"), self.tr("没有可保存的工作流。"))
             return
         
         # 保存工作流
         if workflow_manager.save_workflow(self.current_workflow):
             QMessageBox.information(
-                self, "成功", f"工作流 '{self.current_workflow.name}' 已保存。"
+                self, self.tr("成功"), self.tr(f"工作流 '{self.current_workflow.name}' 已保存。")
             )
         else:
             QMessageBox.warning(
-                self, "错误", f"保存工作流 '{self.current_workflow.name}' 失败。"
+                self, self.tr("错误"), self.tr(f"保存工作流 '{self.current_workflow.name}' 失败。")
             )
     
     def export_workflow_dialog(self):
         """导出工作流到文件"""
         if self.current_workflow is None:
-            QMessageBox.warning(self, "错误", "没有可导出的工作流。")
+            QMessageBox.warning(self, self.tr("错误"), self.tr("没有可导出的工作流。"))
             return
         
         # 选择保存路径
         file_path, _ = QFileDialog.getSaveFileName(
-            self, "导出工作流", f"{self.current_workflow.name}.json",
-            "JSON 文件 (*.json)"
+            self, self.tr("导出工作流"), self.tr(f"{self.current_workflow.name}.json"),
+            self.tr("JSON 文件 (*.json)")
         )
         
         if not file_path:
@@ -711,19 +756,19 @@ class WorkflowDesignerWidget(QWidget):
                 json.dump(self.current_workflow.to_dict(), f, ensure_ascii=False, indent=2)
             
             QMessageBox.information(
-                self, "成功", f"工作流已导出到 {file_path}"
+                self, self.tr("成功"), self.tr(f"工作流已导出到 {file_path}")
             )
         except Exception as e:
             QMessageBox.warning(
-                self, "错误", f"导出工作流失败: {str(e)}"
+                self, self.tr("错误"), self.tr(f"导出工作流失败: {str(e)}")
             )
     
     def import_workflow_dialog(self):
         """从文件导入工作流"""
         # 选择导入文件
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "导入工作流", "",
-            "JSON 文件 (*.json)"
+            self, self.tr("导入工作流"), "",
+            self.tr("JSON 文件 (*.json)")
         )
         
         if not file_path:
@@ -745,26 +790,26 @@ class WorkflowDesignerWidget(QWidget):
             self.steps_tree.load_workflow(workflow)
             
             QMessageBox.information(
-                self, "成功", f"工作流 '{workflow.name}' 已导入。"
+                self, self.tr("成功"), self.tr(f"工作流 '{workflow.name}' 已导入。")
             )
         except Exception as e:
             QMessageBox.warning(
-                self, "错误", f"导入工作流失败: {str(e)}"
+                self, self.tr("错误"), self.tr(f"导入工作流失败: {str(e)}")
             )
     
     def update_workflow_info(self):
         """更新工作流信息显示"""
         if self.current_workflow is None:
-            self.info_label.setText("未打开工作流")
+            self.info_label.setText(self.tr("未打开工作流"))
         else:
             self.info_label.setText(
-                f"当前工作流: {self.current_workflow.name} ({len(self.current_workflow.steps)} 个步骤)"
+                self.tr(f"当前工作流: {self.current_workflow.name} ({len(self.current_workflow.steps)} 个步骤)")
             )
     
     def edit_workflow_info(self):
         """编辑工作流信息"""
         if self.current_workflow is None:
-            QMessageBox.warning(self, "错误", "没有可编辑的工作流。")
+            QMessageBox.warning(self, self.tr("错误"), self.tr("没有可编辑的工作流。"))
             return
         
         # 弹出对话框编辑名称和描述
@@ -779,7 +824,7 @@ class WorkflowDesignerWidget(QWidget):
         
         name = dialog.get_name()
         if not name:
-            QMessageBox.warning(self, "错误", "工作流名称不能为空。")
+            QMessageBox.warning(self, self.tr("错误"), self.tr("工作流名称不能为空。"))
             return
         
         description = dialog.get_description()
@@ -797,7 +842,7 @@ class WorkflowDesignerWidget(QWidget):
     def add_step(self):
         """添加步骤"""
         if self.current_workflow is None:
-            QMessageBox.warning(self, "错误", "请先创建或打开工作流。")
+            QMessageBox.warning(self, self.tr("错误"), self.tr("请先创建或打开工作流。"))
             return
         
         # 获取所有操作类别和操作
@@ -811,7 +856,7 @@ class WorkflowDesignerWidget(QWidget):
         
         # 弹出选择对话框
         action_str, ok = QInputDialog.getItem(
-            self, "添加步骤", "选择操作:",
+            self, self.tr("添加步骤"), self.tr("选择操作:"),
             all_actions, 0, False
         )
         
@@ -850,18 +895,18 @@ class WorkflowDesignerWidget(QWidget):
         # 获取选中的项
         item = self.steps_tree.currentItem()
         if item is None:
-            QMessageBox.warning(self, "错误", "请先选择要删除的步骤。")
+            QMessageBox.warning(self, self.tr("错误"), self.tr("请先选择要删除的步骤。"))
             return
         
         # 获取项数据
         data = item.data(0, Qt.UserRole)
         if data is None or data.get("type") != "step":
-            QMessageBox.warning(self, "错误", "请选择有效的步骤。")
+            QMessageBox.warning(self, self.tr("错误"), self.tr("请选择有效的步骤。"))
             return
         
         # 确认删除
         reply = QMessageBox.question(
-            self, "确认删除", "确定要删除此步骤吗？",
+            self, self.tr("确认删除"), self.tr("确定要删除此步骤吗？"),
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         )
         
@@ -945,7 +990,7 @@ class WorkflowDesignerWidget(QWidget):
                 
                 # 验证ID列表是否与当前工作流步骤匹配
                 if len(ordered_ids) != len(self.current_workflow.steps):
-                    QMessageBox.warning(self, "错误", "步骤重新排序时发生错误：项目数量不匹配。")
+                    QMessageBox.warning(self, self.tr("错误"), self.tr("步骤重新排序时发生错误：项目数量不匹配。"))
                     # 为保持UI和后端一致，可以考虑重新加载工作流以撤销无效的UI更改
                     self.steps_tree.load_workflow(self.current_workflow)
                     return
@@ -957,7 +1002,7 @@ class WorkflowDesignerWidget(QWidget):
                         new_steps_list.append(step)
                     else:
                         # 理论上不应发生，因为ID是从UI项中提取的
-                        QMessageBox.critical(self, "严重错误", f"步骤重新排序时未找到ID为 {step_id} 的步骤。")
+                        QMessageBox.critical(self, self.tr("严重错误"), self.tr(f"步骤重新排序时未找到ID为 {step_id} 的步骤。"))
                         self.steps_tree.load_workflow(self.current_workflow) # 恢复UI
                         valid_reorder = False
                         break
@@ -973,4 +1018,31 @@ class WorkflowDesignerWidget(QWidget):
     def get_current_workflow(self) -> Optional[Workflow]:
         """获取当前工作流"""
         return self.current_workflow
+    
+    def retranslateUi(self):
+        if hasattr(self, 'setWindowTitle'):
+            self.setWindowTitle(self.tr("工作流设计器"))
+        # 工具栏按钮
+        self.edit_info_action.setText(self.tr("编辑信息"))
+        # 信息标签
+        if self.current_workflow is None:
+            self.info_label.setText(self.tr("未打开工作流"))
+        else:
+            self.info_label.setText(
+                self.tr("当前工作流: {name} ({count} 个步骤)").format(
+                    name=self.current_workflow.name,
+                    count=len(self.current_workflow.steps)
+                )
+            )
+        # 分组框
+        self.actions_group.setTitle(self.tr("可用操作"))
+        self.steps_group.setTitle(self.tr("工作流步骤"))
+        # 按钮
+        self.add_step_button.setText(self.tr("添加步骤"))
+        self.remove_step_button.setText(self.tr("删除步骤"))
+        # 递归刷新子部件
+        if hasattr(self, 'actions_list') and hasattr(self.actions_list, 'retranslateUi'):
+            self.actions_list.retranslateUi()
+        if hasattr(self, 'steps_tree') and hasattr(self.steps_tree, 'retranslateUi'):
+            self.steps_tree.retranslateUi()
     

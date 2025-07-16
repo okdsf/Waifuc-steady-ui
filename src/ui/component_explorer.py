@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QDialog, QTableWidget, QTableWidgetItem, QVBoxLayout, QTextBrowser, QPushButton
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QPushButton, QTextBrowser, QTableWidget, QTableWidgetItem
 from PyQt5.QtCore import Qt
 
 # 完整组件信息列表
@@ -1552,37 +1552,38 @@ return ImageItem(item.image, {**item.meta, 'tags': tags})
 class ComponentDetailDialog(QDialog):
     def __init__(self, component, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(f"{component['name']} 详情")
+        self.component = component
+        self.setWindowTitle(self.tr(f"{component['name']} 详情"))
         self.resize(700, 500)
         layout = QVBoxLayout()
 
         # 使用 QTextBrowser 显示 HTML 格式内容
-        text_browser = QTextBrowser()
-        text_browser.setOpenExternalLinks(True)
-        text_browser.setHtml(self.format_component_html(component))
-        layout.addWidget(text_browser)
+        self.text_browser = QTextBrowser()
+        self.text_browser.setOpenExternalLinks(True)
+        self.text_browser.setHtml(self.format_component_html(component))
+        layout.addWidget(self.text_browser)
 
         # 关闭按钮
-        close_button = QPushButton("关闭")
-        close_button.clicked.connect(self.accept)
-        layout.addWidget(close_button)
+        self.close_button = QPushButton(self.tr("关闭"))
+        self.close_button.clicked.connect(self.accept)
+        layout.addWidget(self.close_button)
 
         self.setLayout(layout)
 
     def format_component_html(self, component):
         html = f"<h2>{component['name']}</h2>"
-        html += f"<p><strong>类别</strong>: {component['category']}</p>"
-        html += f"<p><strong>功能描述</strong>: {component['description']}</p>"
+        html += f"<p><strong>{self.tr('类别')}</strong>: {component['category']}</p>"
+        html += f"<p><strong>{self.tr('功能描述')}</strong>: {component['description']}</p>"
 
         # 参数表格
         if component['parameters']:
-            html += "<h3>参数</h3>"
+            html += f"<h3>{self.tr('参数')}</h3>"
             html += "<table style='width:100%; border-collapse: collapse;'>"
             html += "<tr>"
-            html += "<th style='border:1px solid #ddd; padding:8px; text-align:left;'>名称</th>"
-            html += "<th style='border:1px solid #ddd; padding:8px; text-align:left;'>类型</th>"
-            html += "<th style='border:1px solid #ddd; padding:8px; text-align:left;'>默认值</th>"
-            html += "<th style='border:1px solid #ddd; padding:8px; text-align:left;'>描述</th>"
+            html += f"<th style='border:1px solid #ddd; padding:8px; text-align:left;'>{self.tr('名称')}</th>"
+            html += f"<th style='border:1px solid #ddd; padding:8px; text-align:left;'>{self.tr('类型')}</th>"
+            html += f"<th style='border:1px solid #ddd; padding:8px; text-align:left;'>{self.tr('默认值')}</th>"
+            html += f"<th style='border:1px solid #ddd; padding:8px; text-align:left;'>{self.tr('描述')}</th>"
             html += "</tr>"
             for param in component['parameters']:
                 html += "<tr>"
@@ -1594,23 +1595,28 @@ class ComponentDetailDialog(QDialog):
             html += "</table>"
 
         # 其他信息
-        html += f"<h3>调用方法</h3><pre style='background:#f4f4f4; padding:10px;'>{component['call_example']}</pre>"
-        html += f"<h3>注意事项</h3><p>{component['notes']}</p>"
-        html += f"<h3>底层实现原理</h3><pre style='background:#f4f4f4; padding:10px;'>{component['implementation']}</pre>"
+        html += f"<h3>{self.tr('调用方法')}</h3><pre style='background:#f4f4f4; padding:10px;'>{component['call_example']}</pre>"
+        html += f"<h3>{self.tr('注意事项')}</h3><p>{component['notes']}</p>"
+        html += f"<h3>{self.tr('底层实现原理')}</h3><pre style='background:#f4f4f4; padding:10px;'>{component['implementation']}</pre>"
 
         return html
+
+    def retranslateUi(self):
+        self.setWindowTitle(self.tr(f"{self.component['name']} 详情"))
+        self.close_button.setText(self.tr("关闭"))
+        self.text_browser.setHtml(self.format_component_html(self.component))
 
 class ComponentListDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("组件说明")
+        self.setWindowTitle(self.tr("组件说明"))
         self.resize(800, 600)
         layout = QVBoxLayout()
 
         # 组件列表表格
         self.table = QTableWidget()
         self.table.setColumnCount(2)
-        self.table.setHorizontalHeaderLabels(["类别", "组件名称"])
+        self.table.setHorizontalHeaderLabels([self.tr("类别"), self.tr("组件名称")])
         self.table.setRowCount(len(components))
         for i, comp in enumerate(components):
             self.table.setItem(i, 0, QTableWidgetItem(comp['category']))
@@ -1619,9 +1625,9 @@ class ComponentListDialog(QDialog):
         layout.addWidget(self.table)
 
         # 关闭按钮
-        close_button = QPushButton("关闭")
-        close_button.clicked.connect(self.accept)
-        layout.addWidget(close_button)
+        self.close_button = QPushButton(self.tr("关闭"))
+        self.close_button.clicked.connect(self.accept)
+        layout.addWidget(self.close_button)
 
         self.setLayout(layout)
 
@@ -1629,3 +1635,8 @@ class ComponentListDialog(QDialog):
         component = components[row]
         detail_dialog = ComponentDetailDialog(component, self)
         detail_dialog.exec_()
+
+    def retranslateUi(self):
+        self.setWindowTitle(self.tr("组件说明"))
+        self.close_button.setText(self.tr("关闭"))
+        self.table.setHorizontalHeaderLabels([self.tr("类别"), self.tr("组件名称")])

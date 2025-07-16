@@ -256,6 +256,9 @@ class WorkflowEngine:
                     source_for_step = LocalSource(current_dir_for_steps)
                     processed_output = source_for_step.attach(action_instance)
                     
+                    # Check for cancellation before export
+                    if cancel_event and cancel_event.is_set(): raise CancelledError(f"Task cancelled before exporting step {step.action_name}")
+                    
                     # For ALL steps, use SaveExporter to preserve the metadata chain.
                     # The final conversion to .txt or simple image save is handled AFTER the loop.
                     processed_output.export(SaveExporter(step_output_dir, no_meta=False))

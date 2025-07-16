@@ -15,6 +15,7 @@ sys.path.insert(0, tools_dir)
 import logging
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import Qt
+from PyQt5.QtCore import QTranslator
 
 # 导入数据层
 from data import config_manager
@@ -44,7 +45,6 @@ def setup_logging():
 
 def main():
     """程序主入口"""
-    # 设置日志
     setup_logging()
     
     # 创建应用程序
@@ -63,11 +63,26 @@ def main():
         # 设置亮色主题 (如果需要)
         # 实现亮色主题样式...
     
+    # 加载语言
+    lang_code = config_manager.get("ui.language", "zh_CN")
+    translator = QTranslator()
+    translator.load(f"translations/{lang_code}.qm")
+    app.installTranslator(translator)
+    
     # 创建主窗口
     main_window = MainWindow()
-    main_window.show()
+    
+    # 语言切换回调
+    def on_language_changed(new_lang):
+        config_manager.set("ui.language", new_lang)
+        translator.load(f"translations/{new_lang}.qm")
+        app.installTranslator(translator)
+        main_window.retranslateUi()  # 需要在 MainWindow 实现
+    if hasattr(main_window, 'languageChanged'):
+        main_window.languageChanged.connect(on_language_changed)
     
     # 运行应用
+    main_window.show()
     sys.exit(app.exec_())
 
 

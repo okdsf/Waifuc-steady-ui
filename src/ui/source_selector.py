@@ -28,7 +28,7 @@ class SourceParamsWidget(QWidget):
         self.param_widgets = {}
         
         # 默认显示空白
-        self.layout.addRow(QLabel("请选择数据源类型"))
+        self.layout.addRow(QLabel(self.tr("请选择数据源类型")))
     
     def set_source_type(self, source_type: str):
         """
@@ -46,7 +46,7 @@ class SourceParamsWidget(QWidget):
         self.param_widgets = {}
         
         if not source_type:
-            self.layout.addRow(QLabel("请选择数据源类型"))
+            self.layout.addRow(QLabel(self.tr("请选择数据源类型")))
             return
         
         try:
@@ -74,17 +74,17 @@ class SourceParamsWidget(QWidget):
                 dir_layout = QHBoxLayout()
                 
                 dir_edit = QLineEdit()
-                dir_edit.setPlaceholderText("选择图像目录...")
+                dir_edit.setPlaceholderText(self.tr("选择图像目录..."))
                 if "directory" in default_values:
                     dir_edit.setText(default_values["directory"])
                 
-                browse_button = QPushButton("浏览...")
+                browse_button = QPushButton(self.tr("浏览..."))
                 browse_button.clicked.connect(lambda: self.browse_directory(dir_edit))
                 
                 dir_layout.addWidget(dir_edit)
                 dir_layout.addWidget(browse_button)
                 
-                self.layout.addRow("目录:", dir_layout)
+                self.layout.addRow(self.tr("目录:"), dir_layout)
                 self.param_widgets["directory"] = dir_edit
             else:
                 # 其他源通用处理
@@ -93,9 +93,9 @@ class SourceParamsWidget(QWidget):
                     if param_name == "tags":
                         # 标签特殊处理
                         tags_edit = QLineEdit()
-                        tags_edit.setPlaceholderText("输入搜索标签，多个标签用空格分隔")
+                        tags_edit.setPlaceholderText(self.tr("输入搜索标签，多个标签用空格分隔"))
                         
-                        self.layout.addRow("标签:", tags_edit)
+                        self.layout.addRow(self.tr("标签:"), tags_edit)
                         self.param_widgets["tags"] = tags_edit
                     elif param_name in ["username", "password"]:
                         # 凭据特殊处理
@@ -106,7 +106,7 @@ class SourceParamsWidget(QWidget):
                         if param_name in default_values:
                             cred_edit.setText(default_values[param_name])
                         
-                        self.layout.addRow(f"{param_name.capitalize()}:", cred_edit)
+                        self.layout.addRow(self.tr(f"{param_name.capitalize()}:"), cred_edit)
                         self.param_widgets[param_name] = cred_edit
                     elif param_name == "limit" and isinstance(param_value, int):
                         # 数量限制特殊处理
@@ -116,11 +116,11 @@ class SourceParamsWidget(QWidget):
                         default_limit = default_values.get("default_limit", param_value)
                         limit_spin.setValue(default_limit)
                         
-                        self.layout.addRow("下载数量:", limit_spin)
+                        self.layout.addRow(self.tr("下载数量:"), limit_spin)
                         self.param_widgets["limit"] = limit_spin
         
         except Exception as e:
-            self.layout.addRow(QLabel(f"加载参数失败: {str(e)}"))
+            self.layout.addRow(QLabel(self.tr(f"加载参数失败: {str(e)}")))
     
     def browse_directory(self, edit_widget):
         """
@@ -130,7 +130,7 @@ class SourceParamsWidget(QWidget):
             edit_widget: 目录输入控件
         """
         directory = QFileDialog.getExistingDirectory(
-            self, "选择图像目录", edit_widget.text(),
+            self, self.tr("选择图像目录"), edit_widget.text(),
             QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks
         )
         
@@ -164,6 +164,41 @@ class SourceParamsWidget(QWidget):
         
         return params
 
+    def retranslateUi(self):
+        # 刷新所有表单标签和控件
+        for i in range(self.layout.rowCount()):
+            label_item = self.layout.itemAt(i, QFormLayout.LabelRole)
+            if label_item and isinstance(label_item.widget(), QLabel):
+                label = label_item.widget()
+                text = label.text()
+                # 简单处理常见标签
+                if "目录" in text:
+                    label.setText(self.tr("目录:"))
+                elif "标签" in text:
+                    label.setText(self.tr("标签:"))
+                elif "用户名" in text:
+                    label.setText(self.tr("用户名:"))
+                elif "密码" in text:
+                    label.setText(self.tr("密码:"))
+                elif "下载数量" in text:
+                    label.setText(self.tr("下载数量:"))
+                elif "请选择数据源类型" in text:
+                    label.setText(self.tr("请选择数据源类型"))
+                elif "加载参数失败" in text:
+                    label.setText(self.tr("加载参数失败"))
+            field_item = self.layout.itemAt(i, QFormLayout.FieldRole)
+            if field_item and isinstance(field_item.widget(), QLineEdit):
+                widget = field_item.widget()
+                if widget.placeholderText():
+                    if "选择图像目录" in widget.placeholderText():
+                        widget.setPlaceholderText(self.tr("选择图像目录..."))
+                    elif "输入搜索标签" in widget.placeholderText():
+                        widget.setPlaceholderText(self.tr("输入搜索标签，多个标签用空格分隔"))
+        # 刷新浏览按钮
+        for widget in self.findChildren(QPushButton):
+            if widget.text() == "浏览...":
+                widget.setText(self.tr("浏览..."))
+
 
 class SavedSourceDialog(QDialog):
     """
@@ -172,7 +207,7 @@ class SavedSourceDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         
-        self.setWindowTitle("选择保存的数据源")
+        self.setWindowTitle(self.tr("选择保存的数据源"))
         self.setMinimumSize(400, 300)
         
         # 创建布局
@@ -186,10 +221,10 @@ class SavedSourceDialog(QDialog):
         self.load_saved_sources()
         
         # 添加按钮
-        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        button_box.accepted.connect(self.accept)
-        button_box.rejected.connect(self.reject)
-        layout.addWidget(button_box)
+        self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+        layout.addWidget(self.button_box)
     
     def load_saved_sources(self):
         """加载保存的数据源"""
@@ -206,11 +241,11 @@ class SavedSourceDialog(QDialog):
             # 创建显示文本
             if source_type == "LocalSource":
                 directory = source_params.get("directory", "")
-                display_text = f"本地目录: {directory}"
+                display_text = self.tr(f"本地目录: {directory}")
             else:
                 tags = source_params.get("tags", [])
-                tags_str = " ".join(tags) if tags else "<无标签>"
-                display_text = f"{source_type}: {tags_str}"
+                tags_str = " ".join(tags) if tags else self.tr("<无标签>")
+                display_text = self.tr(f"{source_type}: {tags_str}")
             
             # 添加到列表
             item = QListWidgetItem(display_text)
@@ -238,6 +273,12 @@ class SavedSourceDialog(QDialog):
         config = self.source_configs[index]
         return config.get("type"), config.get("params", {})
 
+    def retranslateUi(self):
+        self.setWindowTitle(self.tr("选择保存的数据源"))
+        self.button_box.button(QDialogButtonBox.Ok).setText(self.tr("确定"))
+        self.button_box.button(QDialogButtonBox.Cancel).setText(self.tr("取消"))
+        self.load_saved_sources()
+
 
 class SourceSelectorWidget(QWidget):
     """
@@ -260,40 +301,41 @@ class SourceSelectorWidget(QWidget):
         layout = QVBoxLayout(self)
         
         # 创建选项卡
-        tabs = QTabWidget()
-        layout.addWidget(tabs)
+        self.tabs = QTabWidget()
+        layout.addWidget(self.tabs)
         
         # 新源选项卡
-        new_source_tab = QWidget()
-        new_source_layout = QVBoxLayout(new_source_tab)
+        self.new_source_tab = QWidget()
+        new_source_layout = QVBoxLayout(self.new_source_tab)
         
         # 源类型选择
-        type_layout = QFormLayout()
+        self.type_layout = QFormLayout()
         self.source_type_combo = QComboBox()
         self.load_source_types()
-        type_layout.addRow("源类型:", self.source_type_combo)
-        new_source_layout.addLayout(type_layout)
+        self.type_label = QLabel(self.tr("源类型:"))
+        self.type_layout.addRow(self.type_label, self.source_type_combo)
+        new_source_layout.addLayout(self.type_layout)
         
         # 参数设置
-        params_group = QGroupBox("参数设置")
-        params_layout = QVBoxLayout(params_group)
+        self.params_group = QGroupBox(self.tr("参数设置"))
+        params_layout = QVBoxLayout(self.params_group)
         
         self.params_widget = SourceParamsWidget()
         params_layout.addWidget(self.params_widget)
         
-        new_source_layout.addWidget(params_group)
+        new_source_layout.addWidget(self.params_group)
         
         # 选择按钮
-        select_button = QPushButton("选择此源")
-        select_button.clicked.connect(self.on_select_source)
-        new_source_layout.addWidget(select_button)
+        self.select_button = QPushButton(self.tr("选择此源"))
+        self.select_button.clicked.connect(self.on_select_source)
+        new_source_layout.addWidget(self.select_button)
         
         # 添加到选项卡
-        tabs.addTab(new_source_tab, "新建源")
+        self.tabs.addTab(self.new_source_tab, self.tr("新建源"))
         
         # 保存的源选项卡
-        saved_source_tab = QWidget()
-        saved_source_layout = QVBoxLayout(saved_source_tab)
+        self.saved_source_tab = QWidget()
+        saved_source_layout = QVBoxLayout(self.saved_source_tab)
         
         # 保存的源列表
         self.saved_sources_list = QListWidget()
@@ -303,12 +345,12 @@ class SourceSelectorWidget(QWidget):
         self.load_saved_sources()
         
         # 选择按钮
-        load_button = QPushButton("加载选中源")
-        load_button.clicked.connect(self.on_load_saved_source)
-        saved_source_layout.addWidget(load_button)
+        self.load_button = QPushButton(self.tr("加载选中源"))
+        self.load_button.clicked.connect(self.on_load_saved_source)
+        saved_source_layout.addWidget(self.load_button)
         
         # 添加到选项卡
-        tabs.addTab(saved_source_tab, "保存的源")
+        self.tabs.addTab(self.saved_source_tab, self.tr("保存的源"))
         
         # 连接信号
         self.source_type_combo.currentTextChanged.connect(self.on_source_type_changed)
@@ -319,14 +361,14 @@ class SourceSelectorWidget(QWidget):
         self.source_type_combo.clear()
         
         # 添加空选项
-        self.source_type_combo.addItem("-- 选择源类型 --", "")
+        self.source_type_combo.addItem(self.tr("-- 选择源类型 --"), "")
         
         # 获取所有源类别和源类型
         categories = source_registry.get_categories()
         
         for category in categories:
             # 添加类别分隔
-            self.source_type_combo.addItem(f"=== {category} ===")
+            self.source_type_combo.addItem(self.tr(f"=== {category} ==="))
             self.source_type_combo.setItemData(self.source_type_combo.count() - 1, None)
             
             # 添加该类别下的源类型
@@ -349,11 +391,11 @@ class SourceSelectorWidget(QWidget):
             # 创建显示文本
             if source_type == "LocalSource":
                 directory = source_params.get("directory", "")
-                display_text = f"本地目录: {directory}"
+                display_text = self.tr(f"本地目录: {directory}")
             else:
                 tags = source_params.get("tags", [])
-                tags_str = " ".join(tags) if tags else "<无标签>"
-                display_text = f"{source_type}: {tags_str}"
+                tags_str = " ".join(tags) if tags else self.tr("<无标签>")
+                display_text = self.tr(f"{source_type}: {tags_str}")
             
             # 添加到列表
             item = QListWidgetItem(display_text)
@@ -381,7 +423,7 @@ class SourceSelectorWidget(QWidget):
         # 获取源类型
         source_type = self.source_type_combo.currentData()
         if not source_type:
-            QMessageBox.warning(self, "错误", "请先选择源类型。")
+            QMessageBox.warning(self, self.tr("错误"), self.tr("请先选择源类型。"))
             return
         
         # 获取参数
@@ -391,18 +433,18 @@ class SourceSelectorWidget(QWidget):
         if source_type == "LocalSource":
             directory = params.get("directory", "").strip()
             if not directory:
-                QMessageBox.warning(self, "错误", "请选择图像目录。")
+                QMessageBox.warning(self, self.tr("错误"), self.tr("请选择图像目录。"))
                 return
             
             if not os.path.exists(directory):
-                QMessageBox.warning(self, "错误", f"目录不存在: {directory}")
+                QMessageBox.warning(self, self.tr("错误"), self.tr(f"目录不存在: {directory}"))
                 return
             
             # 保存到最近使用的目录
             config_manager.add_recent_directory(directory)
         
         elif "tags" in params and not params["tags"]:
-            QMessageBox.warning(self, "错误", "请至少输入一个标签。")
+            QMessageBox.warning(self, self.tr("错误"), self.tr("请至少输入一个标签。"))
             return
         
         # 保存源配置
@@ -426,12 +468,12 @@ class SourceSelectorWidget(QWidget):
         """加载选中的保存源"""
         selected_items = self.saved_sources_list.selectedItems()
         if not selected_items:
-            QMessageBox.warning(self, "错误", "请先选择保存的源。")
+            QMessageBox.warning(self, self.tr("错误"), self.tr("请先选择保存的源。"))
             return
         
         index = selected_items[0].data(Qt.UserRole)
         if index >= len(self.saved_source_configs):
-            QMessageBox.warning(self, "错误", "源配置无效。")
+            QMessageBox.warning(self, self.tr("错误"), self.tr("源配置无效。"))
             return
         
         # 获取源配置
@@ -492,3 +534,24 @@ class SourceSelectorWidget(QWidget):
                 return source_type, source_params
         
         return None, None
+
+    def retranslateUi(self):
+        # 刷新窗口标题
+        if hasattr(self, 'setWindowTitle'):
+            self.setWindowTitle(self.tr("数据源选择器"))
+        # 刷新选项卡
+        self.tabs.setTabText(0, self.tr("新建源"))
+        self.tabs.setTabText(1, self.tr("保存的源"))
+        # 刷新源类型下拉框
+        self.type_label.setText(self.tr("源类型:"))
+        self.load_source_types()
+        # 刷新参数设置分组框
+        self.params_group.setTitle(self.tr("参数设置"))
+        # 刷新选择按钮
+        self.select_button.setText(self.tr("选择此源"))
+        self.load_button.setText(self.tr("加载选中源"))
+        # 刷新保存的源列表内容
+        self.load_saved_sources()
+        # 递归刷新参数设置部件
+        if hasattr(self, 'params_widget') and hasattr(self.params_widget, 'retranslateUi'):
+            self.params_widget.retranslateUi()

@@ -24,19 +24,19 @@ class ExecutionDetailDialog(QDialog):
         
         self.record = record
         
-        self.setWindowTitle(f"执行记录详情 - {record.id}")
+        self.setWindowTitle(self.tr(f"执行记录详情 - {record.id}"))
         self.setMinimumSize(600, 400)
         
         # 创建布局
         layout = QVBoxLayout(self)
         
         # 基本信息
-        info_group = QGroupBox("基本信息")
+        info_group = QGroupBox(self.tr("基本信息"))
         info_layout = QFormLayout(info_group)
         
-        info_layout.addRow("工作流:", QLabel(record.workflow_name or "未知"))
-        info_layout.addRow("工作流ID:", QLabel(record.workflow_id or "未知"))
-        info_layout.addRow("源类型:", QLabel(record.source_type or "未知"))
+        info_layout.addRow(self.tr("工作流:"), QLabel(record.workflow_name or self.tr("未知")))
+        info_layout.addRow(self.tr("工作流ID:"), QLabel(record.workflow_id or self.tr("未知")))
+        info_layout.addRow(self.tr("源类型:"), QLabel(record.source_type or self.tr("未知")))
         
         # 格式化时间显示
         start_time = record.start_time
@@ -55,25 +55,25 @@ class ExecutionDetailDialog(QDialog):
             except:
                 pass
         
-        info_layout.addRow("开始时间:", QLabel(start_time or "未知"))
-        info_layout.addRow("结束时间:", QLabel(end_time or "进行中"))
-        info_layout.addRow("状态:", QLabel(record.status or "未知"))
+        info_layout.addRow(self.tr("开始时间:"), QLabel(start_time or self.tr("未知")))
+        info_layout.addRow(self.tr("结束时间:"), QLabel(end_time or self.tr("进行中")))
+        info_layout.addRow(self.tr("状态:"), QLabel(record.status or self.tr("未知")))
         
         if record.error_message:
-            info_layout.addRow("错误信息:", QLabel(record.error_message))
+            info_layout.addRow(self.tr("错误信息:"), QLabel(record.error_message))
         
-        info_layout.addRow("总图像数:", QLabel(str(record.total_images)))
-        info_layout.addRow("处理图像数:", QLabel(str(record.processed_images)))
-        info_layout.addRow("成功图像数:", QLabel(str(record.success_images)))
-        info_layout.addRow("失败图像数:", QLabel(str(record.failed_images)))
+        info_layout.addRow(self.tr("总图像数:"), QLabel(str(record.total_images)))
+        info_layout.addRow(self.tr("处理图像数:"), QLabel(str(record.processed_images)))
+        info_layout.addRow(self.tr("成功图像数:"), QLabel(str(record.success_images)))
+        info_layout.addRow(self.tr("失败图像数:"), QLabel(str(record.failed_images)))
         
-        info_layout.addRow("输出目录:", QLabel(record.output_directory or "未知"))
+        info_layout.addRow(self.tr("输出目录:"), QLabel(record.output_directory or self.tr("未知")))
         
         layout.addWidget(info_group)
         
         # 源参数
         if record.source_params:
-            source_group = QGroupBox("源参数")
+            source_group = QGroupBox(self.tr("源参数"))
             source_layout = QFormLayout(source_group)
             
             for key, value in record.source_params.items():
@@ -83,16 +83,16 @@ class ExecutionDetailDialog(QDialog):
         
         # 步骤日志
         if record.step_logs:
-            steps_group = QGroupBox("步骤日志")
+            steps_group = QGroupBox(self.tr("步骤日志"))
             steps_layout = QVBoxLayout(steps_group)
             
             steps_tree = QTreeWidget()
-            steps_tree.setHeaderLabels(["步骤", "状态", "时间", "消息"])
+            steps_tree.setHeaderLabels([self.tr("步骤"), self.tr("状态"), self.tr("时间"), self.tr("消息")])
             steps_tree.header().setSectionResizeMode(QHeaderView.ResizeToContents)
             
             for log in record.step_logs:
-                step_name = log.get("step_name", "未知")
-                status = log.get("status", "未知")
+                step_name = log.get("step_name", self.tr("未知"))
+                status = log.get("status", self.tr("未知"))
                 timestamp = log.get("timestamp", "")
                 message = log.get("message", "")
                 
@@ -152,11 +152,11 @@ class HistoryViewWidget(QWidget):
         # 创建工具栏
         toolbar_layout = QHBoxLayout()
         
-        self.refresh_button = QPushButton("刷新")
+        self.refresh_button = QPushButton(self.tr("刷新"))
         self.refresh_button.clicked.connect(self.refresh_records)
         toolbar_layout.addWidget(self.refresh_button)
         
-        self.clear_button = QPushButton("清理记录")
+        self.clear_button = QPushButton(self.tr("清理记录"))
         self.clear_button.clicked.connect(self.clear_records)
         toolbar_layout.addWidget(self.clear_button)
         
@@ -167,7 +167,7 @@ class HistoryViewWidget(QWidget):
         
         # 历史记录树
         self.history_tree = QTreeWidget()
-        self.history_tree.setHeaderLabels(["时间", "工作流", "状态", "图像数"])
+        self.history_tree.setHeaderLabels([self.tr("时间"), self.tr("工作流"), self.tr("状态"), self.tr("图像数")])
         self.history_tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.history_tree.customContextMenuRequested.connect(self.show_context_menu)
         self.history_tree.itemDoubleClicked.connect(self.on_item_double_clicked)
@@ -209,9 +209,9 @@ class HistoryViewWidget(QWidget):
         
         # 创建项
         item = QTreeWidgetItem([
-            time_str or "未知",
-            record.workflow_name or "未知",
-            record.status or "未知",
+            time_str or self.tr("未知"),
+            record.workflow_name or self.tr("未知"),
+            record.status or self.tr("未知"),
             str(record.total_images)
         ])
         
@@ -249,21 +249,21 @@ class HistoryViewWidget(QWidget):
         menu = QMenu(self)
         
         # 查看详情
-        view_action = QAction("查看详情", self)
+        view_action = QAction(self.tr("查看详情"), self)
         view_action.triggered.connect(lambda: self.view_record_details(record_id))
         menu.addAction(view_action)
         
         # 打开输出目录
         record = history_manager.get_record(record_id)
         if record and record.output_directory:
-            open_action = QAction("打开输出目录", self)
+            open_action = QAction(self.tr("打开输出目录"), self)
             open_action.triggered.connect(lambda: self.open_output_directory(record.output_directory))
             menu.addAction(open_action)
         
         menu.addSeparator()
         
         # 删除记录
-        delete_action = QAction("删除记录", self)
+        delete_action = QAction(self.tr("删除记录"), self)
         delete_action.triggered.connect(lambda: self.delete_record(record_id))
         menu.addAction(delete_action)
         
@@ -298,7 +298,7 @@ class HistoryViewWidget(QWidget):
         """
         record = history_manager.get_record(record_id)
         if not record:
-            QMessageBox.warning(self, "错误", f"未找到记录 {record_id}")
+            QMessageBox.warning(self, self.tr("错误"), self.tr(f"未找到记录 {record_id}"))
             return
         
         # 显示详情对话框
@@ -324,7 +324,7 @@ class HistoryViewWidget(QWidget):
                 subprocess.Popen(["xdg-open", directory])
         except Exception as e:
             QMessageBox.warning(
-                self, "错误", f"无法打开目录: {str(e)}"
+                self, self.tr("错误"), self.tr(f"无法打开目录: {str(e)}")
             )
     
     def delete_record(self, record_id: str):
@@ -336,7 +336,7 @@ class HistoryViewWidget(QWidget):
         """
         # 确认删除
         reply = QMessageBox.question(
-            self, "确认删除", "确定要删除此记录吗？",
+            self, self.tr("确认删除"), self.tr("确定要删除此记录吗？"),
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         )
         
@@ -348,7 +348,7 @@ class HistoryViewWidget(QWidget):
             # 刷新显示
             self.refresh_records()
         else:
-            QMessageBox.warning(self, "错误", f"删除记录失败")
+            QMessageBox.warning(self, self.tr("错误"), self.tr("删除记录失败"))
     
     def clear_records(self):
         """清理历史记录"""
@@ -356,19 +356,19 @@ class HistoryViewWidget(QWidget):
         menu = QMenu(self)
         
         # 清理所有记录
-        all_action = QAction("清理所有记录", self)
+        all_action = QAction(self.tr("清理所有记录"), self)
         all_action.triggered.connect(lambda: self.do_clear_records(None))
         menu.addAction(all_action)
         
         menu.addSeparator()
         
         # 清理一周前的记录
-        week_action = QAction("清理一周前的记录", self)
+        week_action = QAction(self.tr("清理一周前的记录"), self)
         week_action.triggered.connect(lambda: self.do_clear_records(7))
         menu.addAction(week_action)
         
         # 清理一个月前的记录
-        month_action = QAction("清理一个月前的记录", self)
+        month_action = QAction(self.tr("清理一个月前的记录"), self)
         month_action.triggered.connect(lambda: self.do_clear_records(30))
         menu.addAction(month_action)
         
@@ -385,15 +385,15 @@ class HistoryViewWidget(QWidget):
             days: 保留最近几天的记录，如果为None则清理所有记录
         """
         # 确认清理
-        msg = "确定要清理"
+        msg = self.tr("确定要清理")
         if days is None:
-            msg += "所有记录"
+            msg += self.tr("所有记录")
         else:
-            msg += f"{days}天前的记录"
-        msg += "吗？"
+            msg += self.tr(f"{days}天前的记录")
+        msg += self.tr("吗？")
         
         reply = QMessageBox.question(
-            self, "确认清理", msg,
+            self, self.tr("确认清理"), msg,
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         )
         
@@ -406,4 +406,14 @@ class HistoryViewWidget(QWidget):
         # 刷新显示
         self.refresh_records()
         
-        QMessageBox.information(self, "清理完成", f"已清理 {count} 条记录")
+        QMessageBox.information(self, self.tr("清理完成"), self.tr(f"已清理 {count} 条记录"))
+
+    def retranslateUi(self):
+        # 刷新按钮文本
+        self.refresh_button.setText(self.tr("刷新"))
+        self.clear_button.setText(self.tr("清理记录"))
+        # 刷新树表头
+        self.history_tree.setHeaderLabels([
+            self.tr("时间"), self.tr("工作流"), self.tr("状态"), self.tr("图像数")
+        ])
+        # 递归刷新子部件（如有其它子部件可在此递归）

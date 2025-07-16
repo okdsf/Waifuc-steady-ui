@@ -13,15 +13,17 @@ from src.data import workflow_manager
 from .workflow_designer import WorkflowDesignerWidget
 from .source_selector import SourceSelectorWidget
 from .history_view import HistoryViewWidget
+from PyQt5 import QtCore
 
 class MainWindow(QMainWindow):
     """
     应用程序主窗口
     """
+    languageChanged = pyqtSignal(str)  # 新增信号
     def __init__(self):
         super().__init__()
         
-        self.setWindowTitle("图像处理工具")
+        self.setWindowTitle(self.tr("图像处理工具"))
         self.setMinimumSize(1200, 800)
         
         # 创建中央部件
@@ -31,108 +33,117 @@ class MainWindow(QMainWindow):
         # 创建主布局
         self.main_layout = QVBoxLayout(self.central_widget)
         
+        # 新增：主界面中部工具栏
+        self.workflow_toolbar = QToolBar(self.tr("工作流操作"))
+        self.workflow_toolbar.setIconSize(QSize(24, 24))
+        self.main_layout.addWidget(self.workflow_toolbar)
+        # 新建工作流
+        self.action_new_workflow = QAction(self.tr("新建工作流"), self)
+        self.action_new_workflow.triggered.connect(self.on_new_workflow)
+        self.workflow_toolbar.addAction(self.action_new_workflow)
+        # 删除工作流
+        self.action_delete_workflow = QAction(self.tr("删除工作流"), self)
+        self.action_delete_workflow.triggered.connect(self.on_delete_workflow)
+        self.workflow_toolbar.addAction(self.action_delete_workflow)
+        # 打开工作流
+        self.action_open_workflow = QAction(self.tr("打开工作流"), self)
+        self.action_open_workflow.triggered.connect(self.on_open_workflow)
+        self.workflow_toolbar.addAction(self.action_open_workflow)
+        # 运行工作流
+        self.action_run_workflow = QAction(self.tr("运行工作流"), self)
+        self.action_run_workflow.triggered.connect(self.on_run_workflow)
+        self.workflow_toolbar.addAction(self.action_run_workflow)
+        # 停止工作流
+        self.action_stop_workflow = QAction(self.tr("停止工作流"), self)
+        self.action_stop_workflow.triggered.connect(self.on_stop_workflow)
+        self.action_stop_workflow.setEnabled(False)
+        self.workflow_toolbar.addAction(self.action_stop_workflow)
+        
+        # 新增：动作说明按钮
+        self.action_action_help = QAction(self.tr("动作说明"), self)
+        self.action_action_help.triggered.connect(self.show_action_help)
+        self.workflow_toolbar.addAction(self.action_action_help)
+        
         # 创建选项卡部件
         self.tabs = QTabWidget()
         self.main_layout.addWidget(self.tabs)
         
-        # 初始化选项卡
+        # 初始化QAction（只创建一次）
+        # self.action_new_workflow = QAction(self.tr("新建工作流"), self)
+        # self.action_new_workflow.triggered.connect(self.on_new_workflow)
+        # self.action_open_workflow = QAction(self.tr("打开工作流"), self)
+        # self.action_open_workflow.triggered.connect(self.on_open_workflow)
+        # self.action_delete_workflow = QAction(self.tr("删除工作流"), self)
+        # self.action_delete_workflow.triggered.connect(self.on_delete_workflow)
+        # self.action_run_workflow = QAction(self.tr("运行工作流"), self)
+        # self.action_run_workflow.triggered.connect(self.on_run_workflow)
+        # self.action_stop_workflow = QAction(self.tr("停止工作流"), self)
+        # self.action_stop_workflow.triggered.connect(self.on_stop_workflow)
+        # self.action_stop_workflow.setEnabled(False)
+        # self.action_view_components = QAction(self.tr("查看组件说明"), self)
+        # self.action_view_components.triggered.connect(self.show_component_list)
+        # 创建工具栏（只创建一次）
+        self.toolbar = QToolBar(self.tr("主工具栏"))
+        self.toolbar.setIconSize(QSize(32, 32))
+        self.addToolBar(self.toolbar)
         self.init_tabs()
-        
-        # 创建状态栏
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage("就绪")
-        
-        # 创建工具栏
-        self.init_toolbar()
-        
-        # 创建数据源选择器侧边栏
+        self.status_bar.showMessage(self.tr("就绪"))
+        self.init_toolbar()  # 工具栏action只在这里添加
         self.init_source_dock()
-        
-        # 创建历史记录侧边栏
         self.init_history_dock()
-        
-        # 创建菜单
         self.init_menu()
-        
-        # 加载设置
         self.load_settings()
     
     def init_tabs(self):
         """初始化选项卡"""
         # 创建工作流设计器选项卡
         self.workflow_designer = WorkflowDesignerWidget()
-        self.tabs.addTab(self.workflow_designer, "工作流设计器")
+        self.tabs.addTab(self.workflow_designer, self.tr("工作流设计器"))
         
         # 任务执行选项卡将在执行时动态添加
     
     def init_toolbar(self):
-        """初始化工具栏"""
-        self.toolbar = QToolBar("主工具栏")
-        self.toolbar.setIconSize(QSize(32, 32))
-        self.addToolBar(Qt.TopToolBarArea, self.toolbar)
-        
-        # 新建工作流
-        self.action_new_workflow = QAction("新建工作流", self)
-        self.action_new_workflow.triggered.connect(self.on_new_workflow)
+        """初始化工具栏，只清空和重新添加action，不创建QToolBar"""
+        self.toolbar.clear()
         self.toolbar.addAction(self.action_new_workflow)
-        
-        # 打开工作流
-        self.action_open_workflow = QAction("打开工作流", self)
-        self.action_open_workflow.triggered.connect(self.on_open_workflow)
         self.toolbar.addAction(self.action_open_workflow)
-        
-
-        
         self.toolbar.addSeparator()
-        
-        self.action_delete_workflow = QAction("删除工作流", self) # 新建 QAction
-        self.action_delete_workflow.triggered.connect(self.on_delete_workflow) # 连接到新槽函数
-        self.toolbar.addAction(self.action_delete_workflow) # 添加到工具栏
-
-        # 运行工作流
-        self.action_run_workflow = QAction("运行工作流", self)
-        self.action_run_workflow.triggered.connect(self.on_run_workflow)
+        self.toolbar.addAction(self.action_delete_workflow)
         self.toolbar.addAction(self.action_run_workflow)
-        
-        
-        self.action_stop_workflow = QAction("停止工作流", self)
-        self.action_stop_workflow.triggered.connect(self.on_stop_workflow)
-        self.action_stop_workflow.setEnabled(False)
         self.toolbar.addAction(self.action_stop_workflow)
-        
-        # 添加“查看组件说明”按钮
-        self.action_view_components = QAction("查看组件说明", self)
-        self.action_view_components.triggered.connect(self.show_component_list)
-        self.toolbar.addAction(self.action_view_components)
+        # self.toolbar.addAction(self.action_view_components) # 删除原有组件说明按钮相关代码
     
     def init_menu(self):
         """初始化菜单"""
-        # 文件菜单
-        file_menu = self.menuBar().addMenu("文件")
+        menu_bar = self.menuBar()
+        if menu_bar is None:
+            return  # 防御性编程，避免 NoneType 错误
+        file_menu = menu_bar.addMenu(self.tr("文件"))
         
         file_menu.addAction(self.action_new_workflow)
         file_menu.addAction(self.action_open_workflow)
         file_menu.addSeparator()
         
         # 导入/导出工作流
-        self.action_export_workflow = QAction("导出工作流...", self)
+        self.action_export_workflow = QAction(self.tr("导出工作流..."), self)
         self.action_export_workflow.triggered.connect(self.on_export_workflow)
         file_menu.addAction(self.action_export_workflow)
         
-        self.action_import_workflow = QAction("导入工作流...", self)
+        self.action_import_workflow = QAction(self.tr("导入工作流..."), self)
         self.action_import_workflow.triggered.connect(self.on_import_workflow)
         file_menu.addAction(self.action_import_workflow)
         
         file_menu.addSeparator()
         
         # 退出
-        exit_action = QAction("退出", self)
+        exit_action = QAction(self.tr("退出"), self)
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
         
         # 工具菜单
-        tools_menu = self.menuBar().addMenu("工具")
+        tools_menu = menu_bar.addMenu(self.tr("工具"))
         
         # 运行工作流
         tools_menu.addAction(self.action_run_workflow)
@@ -140,39 +151,39 @@ class MainWindow(QMainWindow):
         tools_menu.addSeparator()
         
         # 设置
-        settings_action = QAction("设置...", self)
+        settings_action = QAction(self.tr("设置..."), self)
         settings_action.triggered.connect(self.on_open_settings)
         tools_menu.addAction(settings_action)
         
         # 视图菜单
-        view_menu = self.menuBar().addMenu("视图")
+        view_menu = menu_bar.addMenu(self.tr("视图"))
         
         # 源选择器
         self.action_toggle_source_dock = self.source_dock.toggleViewAction()
-        self.action_toggle_source_dock.setText("数据源选择器")
+        self.action_toggle_source_dock.setText(self.tr("数据源选择器"))
         view_menu.addAction(self.action_toggle_source_dock)
         
         # 历史记录
         self.action_toggle_history_dock = self.history_dock.toggleViewAction()
-        self.action_toggle_history_dock.setText("历史记录")
+        self.action_toggle_history_dock.setText(self.tr("历史记录"))
         view_menu.addAction(self.action_toggle_history_dock)
         
         # 帮助菜单
-        help_menu = self.menuBar().addMenu("帮助")
+        help_menu = menu_bar.addMenu(self.tr("帮助"))
         
         # 关于
-        about_action = QAction("关于...", self)
+        about_action = QAction(self.tr("关于..."), self)
         about_action.triggered.connect(self.on_about)
         help_menu.addAction(about_action)
         
         # 帮助
-        help_action = QAction("帮助文档", self)
+        help_action = QAction(self.tr("帮助文档"), self)
         help_action.triggered.connect(self.on_help)
         help_menu.addAction(help_action)
     
     def init_source_dock(self):
         """初始化数据源选择器侧边栏"""
-        self.source_dock = QDockWidget("数据源选择器", self)
+        self.source_dock = QDockWidget(self.tr("数据源选择器"), self)
         self.source_dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
         
         self.source_selector = SourceSelectorWidget()
@@ -185,7 +196,7 @@ class MainWindow(QMainWindow):
     
     def init_history_dock(self):
         """初始化历史记录侧边栏"""
-        self.history_dock = QDockWidget("历史记录", self)
+        self.history_dock = QDockWidget(self.tr("历史记录"), self)
         self.history_dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
         
         self.history_view = HistoryViewWidget()
@@ -314,9 +325,8 @@ class MainWindow(QMainWindow):
         """打开设置对话框"""
         from .settings_dialog import SettingsDialog
         dialog = SettingsDialog(self)
-        if dialog.exec_():
-            # 应用设置
-            pass
+        dialog.languageChanged.connect(self.languageChanged.emit)
+        dialog.exec_()
     
     def on_source_selected(self, source_type: str, source_params: Dict[str, Any]):
         """数据源选择事件处理"""
@@ -352,8 +362,7 @@ class MainWindow(QMainWindow):
             "帮助文档尚未实现，敬请期待。"
         )
     
-    def show_component_list(self):
-        """显示组件说明列表"""
+    def show_action_help(self):
         from .component_explorer import ComponentListDialog
         dialog = ComponentListDialog(self)
         dialog.exec_()
@@ -361,46 +370,39 @@ class MainWindow(QMainWindow):
 
 
     def on_delete_workflow(self):
-            """删除选定的工作流"""
-            all_workflows = workflow_manager.get_all_workflows()
-            if not all_workflows:
-                QMessageBox.information(self, "提示", "没有已保存的工作流可供删除。")
-                return
+        """删除工作流"""
+        self.workflow_designer.delete_current_workflow()
+        return None
 
-            items = [f"{wf.name} ({wf.id})" for wf in all_workflows]
-            item, ok = QInputDialog.getItem(self, "删除工作流", "请选择要删除的工作流:", items, 0, False)
-
-            if ok and item:
-                try:
-                    workflow_name_to_delete = item.split(" (")[0]
-                    workflow_id_to_delete = item.split("(")[-1].strip(")")
-                except IndexError:
-                    QMessageBox.warning(self, "选择错误", "选择的工作流条目格式不正确。")
-                    return
-
-                reply = QMessageBox.question(
-                    self, "确认删除",
-                    f"您确定要删除工作流 '{workflow_name_to_delete}' 吗？此操作无法撤销。",
-                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No
-                )
-
-                if reply == QMessageBox.Yes:
-                    if workflow_manager.delete_workflow(workflow_id_to_delete):
-                        QMessageBox.information(self, "成功", f"工作流 '{workflow_name_to_delete}' 已被删除。")
-
-                        # 检查当前工作流设计器中是否加载了这个被删除的工作流
-                        current_designer_workflow = self.workflow_designer.get_current_workflow()
-                        if current_designer_workflow and current_designer_workflow.id == workflow_id_to_delete:
-                            # 清理工作流设计器状态
-                            self.workflow_designer.current_workflow = None
-                            self.workflow_designer.steps_tree.clear()
-                            self.workflow_designer.update_workflow_info()
-                            self.status_bar.showMessage(f"工作流 '{workflow_name_to_delete}' 已删除，设计器已清空。")
-                        else:
-                            self.status_bar.showMessage(f"工作流 '{workflow_name_to_delete}' 已删除。")
-                    else:
-                        QMessageBox.warning(self, "删除失败", f"删除工作流 '{workflow_name_to_delete}' 失败。")
-
+    def retranslateUi(self):
+        self.setWindowTitle(self.tr("图像处理工具"))
+        self.status_bar.showMessage(self.tr("就绪"))
+        # 刷新菜单
+        self.menuBar().clear()
+        self.init_menu()
+        # 刷新主界面工具栏action文本
+        self.action_new_workflow.setText(self.tr("新建工作流"))
+        self.action_delete_workflow.setText(self.tr("删除工作流"))
+        self.action_open_workflow.setText(self.tr("打开工作流"))
+        self.action_run_workflow.setText(self.tr("运行工作流"))
+        self.action_stop_workflow.setText(self.tr("停止工作流"))
+        self.action_action_help.setText(self.tr("动作说明"))
+        self.workflow_toolbar.setWindowTitle(self.tr("工作流操作"))
+        # 刷新工具栏（只clear和addAction，不新建QToolBar）
+        self.init_toolbar()
+        # 刷新选项卡标题
+        self.tabs.setTabText(0, self.tr("工作流设计器"))
+        # 刷新侧边栏标题
+        self.source_dock.setWindowTitle(self.tr("数据源选择器"))
+        self.history_dock.setWindowTitle(self.tr("历史记录"))
+        # 递归刷新子窗口
+        if hasattr(self.workflow_designer, 'retranslateUi'):
+            self.workflow_designer.retranslateUi()
+        if hasattr(self.source_selector, 'retranslateUi'):
+            self.source_selector.retranslateUi()
+        if hasattr(self.history_view, 'retranslateUi'):
+            self.history_view.retranslateUi()
+        # 其他需要递归刷新的子窗口可在此添加
 
 
 if __name__ == "__main__":
